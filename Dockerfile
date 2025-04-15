@@ -14,12 +14,11 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Configure SSH if the 'develop' environment variable is set
-ARG develop
-RUN apt update && apt-get install -y ssh && apt-get clean && rm -rf /var/lib/apt/lists/*;
-ARG AUTHORIZED_KEYS_PATH
+ARG develop AUTHORIZED_KEYS_PATH ROOT_PSW
 COPY ${AUTHORIZED_KEYS_PATH} /root/authorized_keys
-ARG ROOT_PSW
 RUN if [ "$develop" = "true" ]; then \
+        apt update && apt-get install -y ssh python3-full git && apt-get clean && rm -rf /var/lib/apt/lists/*; \
+        python3 -m venv /opt/python3-venv && echo "source /opt/python3-venv/bin/activate" >> /root/.bashrc &&\
         mkdir /var/run/sshd && \
         if [ -n "${ROOT_PSW}" ]; then \
             echo "root:${ROOT_PSW}" | chpasswd; \
@@ -44,6 +43,8 @@ RUN if [ "$develop" = "true" ]; then \
 
 # Expose SSH port if in development mode
 EXPOSE 22
+# Expose Renode port
+EXPOSE 2100
 
-# Start SSH if in development mode
-CMD if [ "$develop" = "true" ]; then /usr/sbin/sshd -D; else echo "Renode installed. SSH not started."; fi
+# Start SSH in the background if in development mode
+CMD if [ "$develop" = "true" ]; then service ssh start;fi; renode -P 2100 --disable-gui;

@@ -1,19 +1,30 @@
 cmake_minimum_required(VERSION 3.12)
+
+set(CMAKE_C_COMPILER_WORKS 1)
+set(CMAKE_C_COMPILER_FORCED TRUE)
+
 project(cortex-m0-microbit C)
 
-# 设置交叉编译工具链
+
+# 强制指定交叉编译工具链
 set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_SYSTEM_PROCESSOR arm)
 set(CMAKE_C_COMPILER arm-none-eabi-gcc)
-set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)  # 避免编译器检测失败
 
-# 定义目标 MCU 参数
-set(CPU_FLAGS "-mcpu=cortex-m0 -mthumb")
-set(LINKER_SCRIPT "${CMAKE_SOURCE_DIR}/board/linker.ld")
+# CPU 架构选项（作为独立参数）
+set(CPU_ARCH "-mcpu=cortex-m0")
+set(THUMB_MODE "-mthumb")
 
-# 公共编译选项
+# 链接脚本路径
+set(LINKER_SCRIPT "${CMAKE_SOURCE_DIR}/board/microbit.ld")
+
+# 编译选项
 add_compile_options(
-        ${CPU_FLAGS}
+        ${CPU_ARCH}
+        ${THUMB_MODE}
         -fno-common
         -ffunction-sections
         -fdata-sections
@@ -24,30 +35,32 @@ add_compile_options(
 
 # 链接选项
 add_link_options(
-        ${CPU_FLAGS}
-        -T ${LINKER_SCRIPT}
+        ${CPU_ARCH}
+        ${THUMB_MODE}
+        -T "${LINKER_SCRIPT}"
         -specs=nosys.specs
         -Wl,--gc-sections
         -Wl,-Map=output.map
         -Wl,--cref
         -nostartfiles
+        -Wl,--no-warn-rwx-segments  # 禁用警告 RWX segments
 )
 
-# 添加可执行文件
+# 可执行文件
 add_executable(${PROJECT_NAME}.elf
         board/startup.c
-        src/main.c  # 确保包含您的应用程序代码
+        src/main.c
 )
 
-# 链接后生成二进制文件（可选）
+# 生成二进制文件
 add_custom_command(TARGET ${PROJECT_NAME}.elf POST_BUILD
-        COMMAND arm-none-eabi-objcopy -O binary ${PROJECT_NAME}.elf ${PROJECT_NAME}.bin
+        COMMAND arm-none-eabi-objcopy -O binary $<TARGET_FILE:${PROJECT_NAME}.elf> ${PROJECT_NAME}.bin
         COMMENT "Generating binary file"
 )
 
-# 自定义运行目标（通过 QEMU）
+# QEMU 运行目标
 add_custom_target(run
-        COMMAND qemu-system-arm -M microbit -kernel ${PROJECT_NAME}.elf
+        COMMAND qemu-system-arm -M microbit -kernel $<TARGET_FILE:${PROJECT_NAME}.elf> -nographic -S
         DEPENDS ${PROJECT_NAME}.elf
         COMMENT "Running in QEMU..."
 )

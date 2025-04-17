@@ -4,20 +4,22 @@ FROM debian:latest
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install dependencies and Renode
+# Install dependencies
 RUN apt-get update && \
-    apt-get install -y wget gnupg openssh-server python3-full git && \
-    wget https://builds.renode.io/renode-latest.deb && \
-    dpkg -i renode-latest.deb || apt-get -f install -y && \
-    rm renode-latest.deb && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+apt-get install -y wget gnupg openssh-server gdb-multiarch python3-full python3-pip git && \
+apt-get clean && \
+rm -rf /var/lib/apt/lists/*
+
 # Install renode-ws-proxy
-RUN python3 -m venv /opt/python3-venv && echo "source /opt/python3-venv/bin/activate" >> /root/.bashrc;
-RUN git clone https://github.com/antmicro/renode-ws-proxy.git && cd renode-ws-proxy && \
-    . /opt/python3-venv/bin/activate && \
-    pip install . && \
-    rm -rf renode-ws-proxy
+WORKDIR /root
+RUN git clone https://github.com/antmicro/renode-ws-proxy.git;
+RUN cd renode-ws-proxy && \
+    pip3 install --break-system-packages . && \
+    cd .. && rm -rf renode-ws-proxy
+RUN wget https://builds.renode.io/renode-latest.linux-portable-dotnet.tar.gz -O /tmp/renode-package.tar.gz && \
+    mkdir -p /root/renode-portable /root/renode-workdir && \
+    tar -C /root/renode-portable --strip-components 1 -xf /tmp/renode-package.tar.gz && \
+    rm /tmp/renode-package.tar.gz
 
 # Configure SSH if the 'develop' environment variable is set
 ARG develop AUTHORIZED_KEYS_PATH ROOT_PSW
@@ -49,8 +51,8 @@ RUN if [ "$develop" = "true" ]; then \
 # Expose SSH port if in development mode
 EXPOSE 22
 # Expose Renode port
-EXPOSE 2100
+EXPOSE 21234
 
 # Start SSH in the background if in development mode
-# CMD if [ "$develop" = "true" ]; then service ssh start;fi; renode -P 2100 --disable-gui;fi
-CMD if [ "$develop" = "true" ]; then /usr/sbin/sshd -D ;else renode -P 2100 --disable-gui;fi
+# CMD if [ "$develop" = "true" ]; then service ssh start;fi; renode -P 21234 --disable-gui;fi
+CMD if [ "$develop" = "true" ]; then /usr/sbin/sshd -D ;else renode-ws-proxy /root/renode-portable/renode /root/renode-workdir -g gdb-multiarch;fi

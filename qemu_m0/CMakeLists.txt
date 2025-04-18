@@ -60,7 +60,7 @@ add_custom_command(TARGET ${PROJECT_NAME}.elf POST_BUILD
 
 # QEMU 运行目标
 add_custom_target(run
-        COMMAND qemu-system-arm -M microbit -kernel $<TARGET_FILE:${PROJECT_NAME}.elf> -nographic -S
+        COMMAND qemu-system-arm -M microbit -kernel $<TARGET_FILE:${PROJECT_NAME}.elf> -nographic -S -S
         DEPENDS ${PROJECT_NAME}.elf
         COMMENT "Running in QEMU..."
 )

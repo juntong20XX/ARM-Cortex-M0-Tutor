@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 from dataclasses import dataclass
 
-import pygdbmi
+from pygdbmi import gdbmiparser, gdbcontroller
 from invoke import task, Collection, Context
 
 
@@ -61,9 +61,9 @@ def build(c: Context, config: Config):
     cmake_build_path = os.path.join(config.BUILD_DIR, f"build-{config.uuid}")
     with c.cd(cmake_build_path):
         # 配置 CMake 项目
-        c.run(f"cmake -S ..")
+        c.run(f"cmake -DCMAKE_BUILD_TYPE=Debug -S ..")
         # 编译项目
-        c.run("cmake --build .")
+        c.run(f"cmake --build . --target {config.TARGET_NAME}")
     print("编译完成")
 
 
@@ -130,11 +130,13 @@ def stop_qemu(c: Context, config: Config):
 @task(pre=[start_qemu])
 def debug(c: Context, config: Config):
     """使用 pygdbmi 连接 GDB 到 QEMU 进行调试"""
+    cmd = [
+        config.GDB_BIN, "--quiet", "--interpreter=mi3",
+        os.path.join(config.BUILD_DIR, f"build-{config.uuid}", config.TARGET_NAME)
+    ]
     try:
         # 创建 GDB 控制器
-        gdbmi = pygdbmi.gdbcontroller.GdbController(
-            command=[config.GDB_BIN, "--quiet", "--interpreter=mi3"]
-        )
+        gdbmi = gdbcontroller.GdbController(command=cmd)
 
         # 等待并处理 GDB 响应
         while True:

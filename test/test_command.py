@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 from invoke import Context
-from ARM_Cortex_M0_Tutor.connector import Config, clean, setup, start_qemu, stop_qemu, build, qemu_processes, debug
+from ARM_Cortex_M0_Tutor.connector import Config, clean, setup, start_qemu, stop_qemu, build, qemu_processes, debug, ASMLine, ASMParam
 
 # `setUP` cannot be used here, because it will be called before each test case.
 project_base = Path(__file__).parent.parent
@@ -15,14 +15,22 @@ test_config = Config(SOURCE_DIR=str(project_base / "qemu_m0"), PROJECT_DIR=tempf
 mock_context = Context()
 
 
+asm_code_list = [
+    # ASM code list
+    # ldr r1, =0x255
+    # adds r0, r1, #0x5
+    ASMLine("LDR", "", ASMParam("r1", "r", False), ASMParam("=0x255", "c", True, 0x255)),
+    ASMLine("ADD", "S", ASMParam("r0", "r", False), ASMParam("r1", "r", False), ASMParam("#0x5", "i", True, 0x5)),
+]
+
+
 class TestAutomationDebugger(unittest.TestCase):
     def tearDown(self):
-        # I should kill all subprocesses
-        # but I don't know how to do it.
+        # I should kill all subprocesses, but I don't know how to do it.
         pass
 
     def test_01_setup(self):
-        setup(mock_context, test_config)
+        setup(mock_context, test_config, asm_code_list)
 
         self.assertTrue(os.path.exists(test_config.PROJECT_DIR))
 

@@ -1,17 +1,13 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-Connect `server` and `data`.
-1. Compile the project using CMake.
-2. Start QEMU with GDB server.
-3. Connect GDB to QEMU.
-4. Previde a GDB interface.
-Implements event-driven design using invoke framework.
+Tools to connect `server` and `data`.
 """
+from .asm_basic import ASMLine
+
 import os
 import time
 import signal
 import subprocess
+from typing import Iterable
 from dataclasses import dataclass, asdict
 
 from pygdbmi import gdbcontroller
@@ -26,7 +22,7 @@ class Config:
     # uuid
     uuid: str
     # project config
-    SOURCE_DIR: str = os.path.abspath(".")
+    SOURCE_DIR: str = os.path.abspath("..")
     PROJECT_DIR: str = os.path.join(SOURCE_DIR, "build")
     BUILD_PATH: str = "{PROJECT_DIR}/build-{uuid}"
     # QEMU 配置
@@ -120,20 +116,29 @@ def clean(c: Context, config: Config):
 
 
 @task
-def setup(c: Context, config: Config):
+def setup(c: Context, config: Config, asm_list: Iterable[ASMLine]):
     """
     setup project dir
     - make project dir
     - make build dir
     - copy source files to project dir
+    - setup asm file
     """
-    if not os.path.exists(config.PROJECT_DIR):
+    mapping = config.get_format_map()
+    if not os.path.exists(mapping["PROJECT_DIR"]):
         os.makedirs(config.PROJECT_DIR)
-    cmake_build_path = config.BUILD_PATH.format_map(asdict(config))
-    if not os.path.exists(cmake_build_path):
-        os.makedirs(cmake_build_path)
+    if not os.path.exists(mapping["build_path"]):
+        os.makedirs(mapping["build_path"])
     c.run(f"cp -r '{config.SOURCE_DIR}'/* '{config.PROJECT_DIR}'")
 
+    # setup asm file
+    asm_file_path = os.path.join(mapping["PROJECT_DIR"], "asm.s")
+    with open(asm_file_path, "r", encoding="utf-8") as asm_file:
+        asm_file_text = asm_file.read()
+    text_list = [line.to_code() for line in asm_list]
+    asm_file_text = asm_file_text.format(CODE_HERE="\n".join(text_list))
+    with open(asm_file_path, "w", encoding="utf-8") as asm_file:
+        asm_file.write(asm_file_text)
 
 @task(pre=[setup])
 def build(c: Context, config: Config):
@@ -142,7 +147,7 @@ def build(c: Context, config: Config):
     cmake_build_path = mapping["build_path"]
     with c.cd(cmake_build_path):
         # setup CMake
-        c.run(f"cmake -DCMAKE_BUILD_TYPE=Debug -S {mapping["project_path"]} -B .")
+        c.run(f"cmake -DCMAKE_BUILD_TYPE=Debug -S {mapping["PROJECT_DIR"]} -B .")
         # build
         c.run(f"cmake --build . --target {config.TARGET_NAME}")
 
@@ -220,3 +225,7 @@ ns.add_task(start_qemu)
 ns.add_task(stop_qemu)
 ns.add_task(debug)
 
+# --- as a module
+
+from .asm_basic import  ASMParam
+__all__ = ["Config", "clean", "setup", "start_qemu", "stop_qemu", "build", "debug", "ASMLine", "ASMParam"]

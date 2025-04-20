@@ -1,35 +1,110 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-自动化调试器：编译、运行和调试一体化工具
-使用 invoke 实现事件驱动设计
+Connect `server` and `data`.
+1. Compile the project using CMake.
+2. Start QEMU with GDB server.
+3. Connect GDB to QEMU.
+4. Previde a GDB interface.
+Implements event-driven design using invoke framework.
 """
 import os
 import time
 import signal
 import subprocess
-from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
-from pygdbmi import gdbmiparser, gdbcontroller
+from pygdbmi import gdbcontroller
 from invoke import task, Collection, Context
 
 
 @dataclass(frozen=True)
 class Config:
+    """
+    args ends with `_ARGS` or `_PATH` will be auto update, `_PATH` args firstly, then `_ARGS`
+    """
     # uuid
     uuid: str
     # project config
     SOURCE_DIR: str = os.path.abspath(".")
-    BUILD_DIR:str = os.path.join(SOURCE_DIR, "build")
+    PROJECT_DIR: str = os.path.join(SOURCE_DIR, "build")
+    BUILD_PATH: str = "{PROJECT_DIR}/build-{uuid}"
     # QEMU 配置
-    QEMU_BIN:str = "qemu-system-arm"  # 根据目标架构修改
-    QEMU_ARGS:str = "-M microbit -nographic -s -S"  # -s 启用GDB服务器，-S 启动时暂停CPU
+    QEMU_BIN: str = "qemu-system-arm"  # 根据目标架构修改
+    QEMU_GDB_ARGS: str = '-chardev "socket,path={gdb_sockets_path},server=on,wait=off,id=gdb0" -gdb chardev:gdb0'
+    QEMU_ADDITION_ARGS: str = "-M microbit -nographic -S -s"  # -s 启用GDB服务器, -S 启动时暂停CPU
     # GDB 配置
-    GDB_BIN:str = "arm-none-eabi-gdb"
-    GDB_PORT:str = "tcp::1234"
+    GDB_BIN: str = "arm-none-eabi-gdb"
     # 目标程序
-    TARGET_NAME:str = "cortex-m0-microbit.elf"  # 编译生成的对象名称
+    TARGET_NAME: str = "cortex-m0-microbit.elf"  # 编译生成的对象名称
+    SOCKETS_NAME: str = "gdb-socket.sock"
+    GDB_SOCKETS_PATH: str = "{PROJECT_DIR}/build-{uuid}/{SOCKETS_NAME}"
+
+    def get_format_map(self) -> dict:
+        ret = asdict(self)
+        for k, v in tuple(ret.items()):
+            if k.endswith("_PATH") and hasattr(v, "format_map"):
+                ret[k.lower()] = v.format_map(ret)
+        for k, v in tuple(ret.items()):
+            if k.endswith("_ARGS") and hasattr(v, "format_map"):
+                ret[k.lower()] = v.format_map(ret)
+        return ret
+
+
+class ALoader:
+    def __init__(self, gdbmi: gdbcontroller.GdbController, socket_path: str):
+        """
+
+        :param gdbmi:
+        """
+        self.gdbmi = gdbmi
+        self._responses = gdbmi.get_gdb_response(timeout_sec=2)
+
+        # connect
+        response = gdbmi.write(f"-target-select remote {socket_path}")
+        assert not self._is_failed(response)
+
+        # step to ASM code
+        gdbmi.write("-break-insert main")
+        assert not self._is_failed(response)
+        gdbmi.write("-exec-continue")
+        gdbmi.write("-exec-step")
+
+        self._line_number = 0
+
+    @staticmethod
+    def _is_failed(response):
+        for r in response:
+            if r['type'] == "result":
+                if r["message"] == "error":
+                    return True
+                else:
+                    return False
+        raise
+
+    def is_running(self):
+        return self.gdbmi.gdb_process.poll() is None
+    def asm_step(self):
+        """
+
+        :return:
+        """
+        response = self.gdbmi.write("-exec-step-instruction")
+        for r in response:
+            if r['type'] == "notify":
+                payload = r["payload"]
+                if (frame := payload.get("frame", {})).get("file").endswith((".s", ".S")):
+                    break
+                else:
+                    # not in ASM file
+                    return None
+        else:
+            # not except
+            raise
+        addr_pc = frame["addr"]
+        response = self.gdbmi.write("-data-disassemble -a %s" % addr_pc)
+        assert len(response) == 1
+        response[0]["payload"]
 
 
 # qemu process, {"uuid": process}
@@ -38,146 +113,105 @@ qemu_processes = {}
 
 @task
 def clean(c: Context, config: Config):
-    """清理构建目录"""
-    if os.path.exists(config.BUILD_DIR):
-        c.run(f"rm -rf {config.BUILD_DIR}")
-        print(f"the build dir cleaned: {config.BUILD_DIR}")
+    """clear the project dir"""
+    if os.path.exists(config.PROJECT_DIR):
+        c.run(f"rm -rf {config.PROJECT_DIR}")
+        print(f"the build dir cleaned: {config.PROJECT_DIR}")
 
 
 @task
 def setup(c: Context, config: Config):
-    """创建必要的目录结构"""
-    if not os.path.exists(config.BUILD_DIR):
-        os.makedirs(config.BUILD_DIR)
-    cmake_build_path = os.path.join(config.BUILD_DIR, f"build-{config.uuid}")
+    """
+    setup project dir
+    - make project dir
+    - make build dir
+    - copy source files to project dir
+    """
+    if not os.path.exists(config.PROJECT_DIR):
+        os.makedirs(config.PROJECT_DIR)
+    cmake_build_path = config.BUILD_PATH.format_map(asdict(config))
     if not os.path.exists(cmake_build_path):
         os.makedirs(cmake_build_path)
-    c.run(f"cp -r '{config.SOURCE_DIR}'/* '{config.BUILD_DIR}'")
+    c.run(f"cp -r '{config.SOURCE_DIR}'/* '{config.PROJECT_DIR}'")
 
 
 @task(pre=[setup])
 def build(c: Context, config: Config):
-    """使用 CMake 编译项目"""
-    cmake_build_path = os.path.join(config.BUILD_DIR, f"build-{config.uuid}")
+    """CMake build"""
+    mapping = config.get_format_map()
+    cmake_build_path = mapping["build_path"]
     with c.cd(cmake_build_path):
-        # 配置 CMake 项目
-        c.run(f"cmake -DCMAKE_BUILD_TYPE=Debug -S ..")
-        # 编译项目
+        # setup CMake
+        c.run(f"cmake -DCMAKE_BUILD_TYPE=Debug -S {mapping["project_path"]} -B .")
+        # build
         c.run(f"cmake --build . --target {config.TARGET_NAME}")
-    print("编译完成")
 
 
 @task
 def start_qemu(c: Context, config: Config):
-    """启动 QEMU 并运行目标程序"""
-    target_path = os.path.join(config.BUILD_DIR, f"build-{config.uuid}", config.TARGET_NAME)
-    # 检查目标程序是否存在
-    if not os.path.exists(target_path):
-        print(f"错误: 目标程序不存在 {target_path}")
-        return False
+    """start QEMU """
+    mapping = config.get_format_map()
+    target_path = os.path.join(mapping["build_path"], config.TARGET_NAME)
+    # check target
+    assert os.path.exists(target_path), "Target file not found"
 
-    # 启动 QEMU
-    cmd = f"{config.QEMU_BIN} {config.QEMU_ARGS} -kernel {target_path}"
-    print(f"启动 QEMU: {cmd}")
-
-    # 使用 Popen 而不是 c.run，这样可以不阻塞
+    # start QEMU
+    cmd = f"{config.QEMU_BIN} {mapping['qemu_addition_args']} -kernel {target_path} {mapping['qemu_gdb_args']}"
     qemu_process = subprocess.Popen(
         cmd,
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        preexec_fn=os.setsid  # 使用新进程组，便于后续终止
+        preexec_fn=os.setsid  # Use a new process group, making it easier to terminate later
     )
 
-    #  记录 qemu_process
     qemu_processes[config.uuid] = qemu_process
 
-    # 等待 QEMU 启动
-    time.sleep(2)
+    # wait for QEMU to start
+    time.sleep(1)
 
     if qemu_process.poll() is not None:
-        # QEMU 已终止
         stdout, stderr = qemu_process.communicate()
-        print("QEMU 启动失败:")
-        print(f"标准输出: {stdout.decode('utf-8', errors='ignore')}")
-        print(f"标准错误: {stderr.decode('utf-8', errors='ignore')}")
-        return False
+        print("QEMU start failed:")
+        print(f"stdout: {stdout.decode('utf-8', errors='ignore')}")
+        print(f"stderr: {stderr.decode('utf-8', errors='ignore')}")
+        raise RuntimeError("QEMU failed to start")
 
-    print("QEMU 已启动，等待 GDB 连接...")
     return True
 
 
 @task
 def stop_qemu(c: Context, config: Config):
-    """停止 QEMU 进程"""
+    """stop QEMU process"""
     qemu_process = qemu_processes.get(config.uuid)
     if qemu_process and qemu_process.poll() is None:
-        print("正在停止 QEMU...")
         # 发送 SIGTERM 信号给整个进程组
         os.killpg(os.getpgid(qemu_process.pid), signal.SIGTERM)
-        # 等待进程终止
         try:
             qemu_process.wait(timeout=5)
-            print("QEMU 已停止")
+            print("QEMU stoped successfully")
         except subprocess.TimeoutExpired:
-            print("QEMU 未响应，强制终止...")
+            print("QEMU not stopped...")
             os.killpg(os.getpgid(qemu_process.pid), signal.SIGKILL)
-            print("QEMU 已强制终止")
-    else:
-        print("没有运行中的 QEMU 进程")
+            print("QEMU killed")
 
 
 @task(pre=[start_qemu])
 def debug(c: Context, config: Config):
-    """使用 pygdbmi 连接 GDB 到 QEMU 进行调试"""
+    """client GDB connect to QEMU"""
+    mapping = config.get_format_map()
     cmd = [
-        config.GDB_BIN, "--quiet", "--interpreter=mi3",
-        os.path.join(config.BUILD_DIR, f"build-{config.uuid}", config.TARGET_NAME)
+        config.GDB_BIN,
+        os.path.join(mapping["build_path"], config.TARGET_NAME),
+        "--quiet", "--interpreter=mi2",
     ]
-    try:
-        # 创建 GDB 控制器
-        gdbmi = gdbcontroller.GdbController(command=cmd)
+    # setup GDB Controller
+    gdbmi = gdbcontroller.GdbController(command=cmd)
 
-        # 等待并处理 GDB 响应
-        while True:
-            responses = gdbmi.get_gdb_response(timeout_sec=1)
-            # fixme: AI is WRONG, but I don't know what I would like to do. So just keep it.
-            for response in responses:
-                # 根据需要处理不同类型的响应
-                if response['type'] == 'console':
-                    print(response['payload'])
-                elif response['type'] == 'error':
-                    print(f"GDB错误: {response['payload']}")
-                elif response['type'] == 'stopped':
-                    print("程序已停止")
-                    # 可以在这里添加更多交互逻辑
-
-            # 添加用户交互或其他控制逻辑
-            # 例如，等待用户输入或检查是否需要退出
-
-    except KeyboardInterrupt:
-        print("\nGDB 会话已终止")
-    finally:
-        # 停止 QEMU
-        stop_qemu(c, config)
+    return ALoader(gdbmi, mapping["gdb_sockets_path"])
 
 
-@task(default=True)
-def auto_debug(c: Context, config: Config):
-    """一键自动化调试流程"""
-    print("=== 开始自动化调试流程 ===")
-    # 清理旧的构建
-    clean(c, config)
-    # 编译项目
-    build(c, config)
-    # 启动 QEMU 并运行目标
-    if start_qemu(c, config):
-        # 连接 GDB 进行调试
-        debug(c, config)
-    print("=== 自动化调试流程结束 ===")
-
-
-# 创建任务集合
+# Invoke tasks
 ns = Collection()
 ns.add_task(clean)
 ns.add_task(setup)
@@ -185,4 +219,4 @@ ns.add_task(build)
 ns.add_task(start_qemu)
 ns.add_task(stop_qemu)
 ns.add_task(debug)
-ns.add_task(auto_debug)
+

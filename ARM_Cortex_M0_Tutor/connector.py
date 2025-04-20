@@ -20,8 +20,8 @@ class Config:
     # uuid
     uuid: str
     # project config
-    PROJECT_DIR: str = os.path.abspath(".")
-    BUILD_DIR:str = os.path.join(PROJECT_DIR, "build")
+    SOURCE_DIR: str = os.path.abspath(".")
+    BUILD_DIR:str = os.path.join(SOURCE_DIR, "build")
     # QEMU 配置
     QEMU_BIN:str = "qemu-system-arm"  # 根据目标架构修改
     QEMU_ARGS:str = "-M microbit -nographic -s -S"  # -s 启用GDB服务器，-S 启动时暂停CPU
@@ -49,15 +49,19 @@ def setup(c: Context, config: Config):
     """创建必要的目录结构"""
     if not os.path.exists(config.BUILD_DIR):
         os.makedirs(config.BUILD_DIR)
-        print(f"已创建构建目录: {config.BUILD_DIR}")
+    cmake_build_path = os.path.join(config.BUILD_DIR, f"build-{config.uuid}")
+    if not os.path.exists(cmake_build_path):
+        os.makedirs(cmake_build_path)
+    c.run(f"cp -r '{config.SOURCE_DIR}'/* '{config.BUILD_DIR}'")
 
 
 @task(pre=[setup])
 def build(c: Context, config: Config):
     """使用 CMake 编译项目"""
-    with c.cd(config.BUILD_DIR):
+    cmake_build_path = os.path.join(config.BUILD_DIR, f"build-{config.uuid}")
+    with c.cd(cmake_build_path):
         # 配置 CMake 项目
-        c.run(f"cmake -S '{config.PROJECT_DIR}'")
+        c.run(f"cmake -S ..")
         # 编译项目
         c.run("cmake --build .")
     print("编译完成")
@@ -66,7 +70,7 @@ def build(c: Context, config: Config):
 @task
 def start_qemu(c: Context, config: Config):
     """启动 QEMU 并运行目标程序"""
-    target_path = os.path.join(config.BUILD_DIR, config.TARGET_NAME)
+    target_path = os.path.join(config.BUILD_DIR, f"build-{config.uuid}", config.TARGET_NAME)
     # 检查目标程序是否存在
     if not os.path.exists(target_path):
         print(f"错误: 目标程序不存在 {target_path}")

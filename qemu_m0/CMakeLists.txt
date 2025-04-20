@@ -3,13 +3,17 @@ cmake_minimum_required(VERSION 3.12)
 set(CMAKE_C_COMPILER_WORKS 1)
 set(CMAKE_C_COMPILER_FORCED TRUE)
 
-project(cortex-m0-microbit C)
+enable_language(ASM)
+
+project(cortex-m0-microbit LANGUAGES C ASM)
 
 
 # 强制指定交叉编译工具链
 set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_SYSTEM_PROCESSOR arm)
 set(CMAKE_C_COMPILER arm-none-eabi-gcc)
+set(CMAKE_CXX_COMPILER arm-none-eabi-g++)
+set(CMAKE_ASM_COMPILER arm-none-eabi-gcc)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)  # 避免编译器检测失败
@@ -50,6 +54,7 @@ add_link_options(
 add_executable(${PROJECT_NAME}.elf
         board/startup.c
         src/main.c
+        asm.s
 )
 
 # 生成二进制文件

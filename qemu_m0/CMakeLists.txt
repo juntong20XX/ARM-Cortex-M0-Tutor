@@ -3,11 +3,6 @@ cmake_minimum_required(VERSION 3.12)
 set(CMAKE_C_COMPILER_WORKS 1)
 set(CMAKE_C_COMPILER_FORCED TRUE)
 
-enable_language(ASM)
-
-project(cortex-m0-microbit LANGUAGES C ASM)
-
-
 # 强制指定交叉编译工具链
 set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_SYSTEM_PROCESSOR arm)
@@ -17,6 +12,9 @@ set(CMAKE_ASM_COMPILER arm-none-eabi-gcc)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)  # 避免编译器检测失败
+
+project(cortex-m0-microbit LANGUAGES C ASM)
+
 
 # CPU 架构选项（作为独立参数）
 set(CPU_ARCH "-mcpu=cortex-m0")

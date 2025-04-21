@@ -18,7 +18,7 @@ from pygdbmi import gdbcontroller
 class ASMStep:
     line_counter: int
     addr_pc: str
-    disassemble: tuple[tuple[str, str], ...]
+    disassemble: tuple[tuple[str, ASMLine], ...]
     register_values: tuple[tuple[str, str], ...]
 
 
@@ -39,14 +39,14 @@ class ALoader:
         gdbmi.write("-break-insert main")
         assert not self._command_failed(response)
         gdbmi.write("-exec-continue")
-        gdbmi.write("-exec-step")
+        self.gdbmi.write("-exec-step-instruction")
 
         if reader is None:
             self.reader = ASMLineReader()
         else:
             self.reader = reader
 
-        self._line_counter = 0
+        self._line_counter = -1
 
     @staticmethod
     def _filter_type(response: list[dict], type_name: str):
@@ -134,3 +134,17 @@ class ALoader:
 
     def __iter__(self):
         return self
+
+    def exit(self):
+        self.gdbmi.write("-gdb-exit")
+        return not self.is_running()
+
+    def __enter__(self):
+        pass
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.exit()
+
+    def __del__(self):
+        self.exit()
+
+

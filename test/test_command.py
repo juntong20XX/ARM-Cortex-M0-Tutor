@@ -6,14 +6,14 @@ import subprocess
 from pathlib import Path
 
 from invoke import Context
-from ARM_Cortex_M0_Tutor.connector import Config, clean, setup, start_qemu, stop_qemu, build, qemu_processes, debug, ASMLine, ASMParam
+from ARM_Cortex_M0_Tutor.connector import Config, clean, setup, start_qemu, stop_qemu, build, qemu_processes, debug, \
+    ASMLine, ASMParam
 
 # `setUP` cannot be used here, because it will be called before each test case.
 project_base = Path(__file__).parent.parent
 test_config = Config(SOURCE_DIR=str(project_base / "qemu_m0"), PROJECT_DIR=tempfile.mkdtemp(),
                      uuid=str(uuid.uuid4()))
 mock_context = Context()
-
 
 asm_code_list = [
     # ASM code list
@@ -46,11 +46,12 @@ class TestAutomationDebugger(unittest.TestCase):
         self.assertTrue(result)
 
     def test_04_debug(self):
-        """
-        I don't know how to check the result.
-        """
         asm_steps = debug(mock_context, test_config)
-        print(list(asm_steps))
+        steps_ls = list(asm_steps)
+        # check NZCV
+        self.assertEqual(
+            "".join(v for _, v in steps_ls[-1].register_values[-4:]),
+            "0000")
 
     def test_05_stop_qemu(self):
         if not len(qemu_processes) == 1:

@@ -2,11 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 Connect `server` and `data`.
-1. Compile the project using CMake.
-2. Start QEMU with GDB server.
-3. Connect GDB to QEMU.
-4. Provide a GDB interface.
-Implements event-driven design using invoke framework.
 """
 from .asm_basic import ASMLineReader, ASMLine
 
@@ -16,6 +11,34 @@ from pygdbmi import gdbcontroller
 
 @dataclass(frozen=True)
 class ASMStep:
+    """
+    Get the data obtained by stepping.
+
+    .line_counter: The line number at which the current run ends is counted by `ALoader`.
+    .addr_pc: a hex-number-like string
+    .disassemble: (("address", <ASMLine>), ("address+", <ASMLine>), ...)
+    .register_values example:
+    Out: (('r0', '0x0'),
+          ('r1', '0x255'),
+          ('r2', '0x0'),
+          ('r3', '0x0'),
+          ('r4', '0x0'),
+          ('r5', '0x0'),
+          ('r6', '0x0'),
+          ('r7', '0x0'),
+          ('r8', '0x0'),
+          ('r9', '0x0'),
+          ('r10', '0x0'),
+          ('r11', '0x0'),
+          ('r12', '0x0'),
+          ('r13', '0x200003f0'),
+          ('r14', '0x51'),
+          ('r15', '0x56'),
+          ('N', '0'),
+          ('Z', '1'),
+          ('C', '0'),
+          ('V', '0'))
+    """
     line_counter: int
     addr_pc: str
     disassemble: tuple[tuple[str, ASMLine], ...]
@@ -25,8 +48,8 @@ class ASMStep:
 class ALoader:
     def __init__(self, gdbmi: gdbcontroller.GdbController, socket_path: str, asm_reader: ASMLineReader = None):
         """
-
-        :param gdbmi:
+        Connect gdb and get `disassemble` and `register_values` of assembly code.
+        By iter this object, each time will get a `ASMStep` object.
         """
         self.gdbmi = gdbmi
         self._responses = gdbmi.get_gdb_response(timeout_sec=2)

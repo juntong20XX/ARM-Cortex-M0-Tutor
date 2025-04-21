@@ -19,8 +19,8 @@ asm_code_list = [
     # ASM code list
     # ldr r1, =0x255
     # adds r0, r1, #0x5
-    ASMLine("LDR", "", ASMParam("r1", "r", False), ASMParam("=0x255", "c", True, 0x255)),
-    ASMLine("ADD", "S", ASMParam("r0", "r", False), ASMParam("r1", "r", False), ASMParam("#0x5", "i", True, 0x5)),
+    ASMLine("ldr", "", ASMParam("r1", "r"), ASMParam("=0x255", "c")),
+    ASMLine("add", "s", ASMParam("r0", "r"), ASMParam("r1", "r"), ASMParam("#0x5", "i")),
 ]
 
 
@@ -49,7 +49,8 @@ class TestAutomationDebugger(unittest.TestCase):
         """
         I don't know how to check the result.
         """
-        debug(mock_context, test_config)
+        asm_steps = debug(mock_context, test_config)
+        print(list(asm_steps))
 
     def test_05_stop_qemu(self):
         if not len(qemu_processes) == 1:

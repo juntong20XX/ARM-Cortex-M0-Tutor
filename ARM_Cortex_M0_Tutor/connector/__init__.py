@@ -2,6 +2,7 @@
 Tools to connect `server` and `data`.
 """
 from .asm_basic import ASMLine
+from .connector import ALoader
 
 import os
 import time
@@ -47,62 +48,6 @@ class Config:
         return ret
 
 
-class ALoader:
-    def __init__(self, gdbmi: gdbcontroller.GdbController, socket_path: str):
-        """
-
-        :param gdbmi:
-        """
-        self.gdbmi = gdbmi
-        self._responses = gdbmi.get_gdb_response(timeout_sec=2)
-
-        # connect
-        response = gdbmi.write(f"-target-select remote {socket_path}")
-        assert not self._is_failed(response)
-
-        # step to ASM code
-        gdbmi.write("-break-insert main")
-        assert not self._is_failed(response)
-        gdbmi.write("-exec-continue")
-        gdbmi.write("-exec-step")
-
-        self._line_number = 0
-
-    @staticmethod
-    def _is_failed(response):
-        for r in response:
-            if r['type'] == "result":
-                if r["message"] == "error":
-                    return True
-                else:
-                    return False
-        raise
-
-    def is_running(self):
-        return self.gdbmi.gdb_process.poll() is None
-    def asm_step(self):
-        """
-
-        :return:
-        """
-        response = self.gdbmi.write("-exec-step-instruction")
-        for r in response:
-            if r['type'] == "notify":
-                payload = r["payload"]
-                if (frame := payload.get("frame", {})).get("file").endswith((".s", ".S")):
-                    break
-                else:
-                    # not in ASM file
-                    return None
-        else:
-            # not except
-            raise
-        addr_pc = frame["addr"]
-        response = self.gdbmi.write("-data-disassemble -a %s" % addr_pc)
-        assert len(response) == 1
-        response[0]["payload"]
-
-
 # qemu process, {"uuid": process}
 qemu_processes = {}
 
@@ -139,6 +84,7 @@ def setup(c: Context, config: Config, asm_list: Iterable[ASMLine]):
     asm_file_text = asm_file_text.format(CODE_HERE="\n".join(text_list))
     with open(asm_file_path, "w", encoding="utf-8") as asm_file:
         asm_file.write(asm_file_text)
+
 
 @task(pre=[setup])
 def build(c: Context, config: Config):
@@ -194,7 +140,7 @@ def stop_qemu(c: Context, config: Config):
         os.killpg(os.getpgid(qemu_process.pid), signal.SIGTERM)
         try:
             qemu_process.wait(timeout=5)
-            print("QEMU stoped successfully")
+            print("QEMU stopped successfully")
         except subprocess.TimeoutExpired:
             print("QEMU not stopped...")
             os.killpg(os.getpgid(qemu_process.pid), signal.SIGKILL)
@@ -227,5 +173,9 @@ ns.add_task(debug)
 
 # --- as a module
 
-from .asm_basic import  ASMParam
-__all__ = ["Config", "clean", "setup", "start_qemu", "stop_qemu", "build", "debug", "ASMLine", "ASMParam"]
+from .asm_basic import ASMParam, ASMLineReader
+from .connector import ASMStep
+
+__all__ = ["Config", "clean", "setup", "start_qemu", "stop_qemu", "build", "debug",
+           "ASMLine", "ASMParam", "ASMStep", "ASMLineReader",
+           "ALoader"]

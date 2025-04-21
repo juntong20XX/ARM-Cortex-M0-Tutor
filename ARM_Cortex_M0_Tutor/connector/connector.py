@@ -84,7 +84,7 @@ class ALoader:
         raise
 
     def is_running(self):
-        return self.gdbmi.gdb_process.poll() is None
+        return self.gdbmi.gdb_process is not None and self.gdbmi.gdb_process.poll() is None
 
     def get_disassemble(self, addr_pc: str) -> tuple[tuple[str, ASMLine], ...]:
         """
@@ -159,7 +159,11 @@ class ALoader:
         return self
 
     def exit(self):
-        self.gdbmi.write("-gdb-exit")
+        if self.is_running():
+            try:
+                self.gdbmi.exit()
+            except (ValueError, OSError):
+                pass
         return not self.is_running()
 
     def __enter__(self):

@@ -64,6 +64,10 @@ class ASMLine:
 
 
 class ASMLineReader:
+    """
+    convert assembly lines to formatted ASMLine object
+    It can be integrated by passing in different parameters during initialization.
+    """
     def __init__(self, *, known_commands=KNOWN_COMMANDS, known_params=KNOWN_PARAMS):
         """
         build regex
@@ -90,8 +94,7 @@ class ASMLineReader:
 
     def load(self, line: str) -> ASMLine:
         """
-        split line to "command" and several args
-        :return:
+        read `line` and return ASMLine object
         """
 
         # split to command and args

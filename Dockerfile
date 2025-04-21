@@ -7,19 +7,17 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install dependencies
 RUN apt-get update && \
 apt-get install -y wget gnupg openssh-server gdb-multiarch python3-full python3-pip git && \
+apt-get install -y arm-none-eabi cmake&& \
+apt-get install -y qemu-system-arm && \
+apt-get install -y python3-invoke && \
 apt-get clean && \
 rm -rf /var/lib/apt/lists/*
 
-# Install renode-ws-proxy
+# Install project
 WORKDIR /root
-RUN git clone https://github.com/antmicro/renode-ws-proxy.git;
-RUN cd renode-ws-proxy && \
-    pip3 install --break-system-packages . && \
-    cd .. && rm -rf renode-ws-proxy
-RUN wget https://builds.renode.io/renode-latest.linux-portable-dotnet.tar.gz -O /tmp/renode-package.tar.gz && \
-    mkdir -p /root/renode-portable /root/renode-workdir && \
-    tar -C /root/renode-portable --strip-components 1 -xf /tmp/renode-package.tar.gz && \
-    rm /tmp/renode-package.tar.gz
+COPY ARM_Cortex_M0_Tutor .
+COPY qemu_m0 .
+RUN pip3 install --break-system-packages pygdbmi
 
 # Configure SSH if the 'develop' environment variable is set
 ARG develop AUTHORIZED_KEYS_PATH ROOT_PSW
@@ -55,4 +53,4 @@ EXPOSE 21234
 
 # Start SSH in the background if in development mode
 # CMD if [ "$develop" = "true" ]; then service ssh start;fi; renode -P 21234 --disable-gui;fi
-CMD if [ "$develop" = "true" ]; then /usr/sbin/sshd -D ;else renode-ws-proxy /root/renode-portable/renode /root/renode-workdir -g gdb-multiarch;fi
+CMD if [ "$develop" = "true" ]; then /usr/sbin/sshd -D ;else python3;fi

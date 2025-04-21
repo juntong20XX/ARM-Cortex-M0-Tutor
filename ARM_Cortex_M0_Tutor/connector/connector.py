@@ -23,7 +23,7 @@ class ASMStep:
 
 
 class ALoader:
-    def __init__(self, gdbmi: gdbcontroller.GdbController, socket_path: str, reader: ASMLineReader = None):
+    def __init__(self, gdbmi: gdbcontroller.GdbController, socket_path: str, asm_reader: ASMLineReader = None):
         """
 
         :param gdbmi:
@@ -41,10 +41,10 @@ class ALoader:
         gdbmi.write("-exec-continue")
         self.gdbmi.write("-exec-step-instruction")
 
-        if reader is None:
+        if asm_reader is None:
             self.reader = ASMLineReader()
         else:
-            self.reader = reader
+            self.reader = asm_reader
 
         self._line_counter = -1
 

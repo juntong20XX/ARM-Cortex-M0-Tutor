@@ -148,7 +148,7 @@ def stop_qemu(c: Context, config: Config):
 
 
 @task(pre=[start_qemu])
-def debug(c: Context, config: Config):
+def debug(c: Context, config: Config, asm_reader=None):
     """client GDB connect to QEMU"""
     mapping = config.get_format_map()
     cmd = [
@@ -159,7 +159,7 @@ def debug(c: Context, config: Config):
     # setup GDB Controller
     gdbmi = gdbcontroller.GdbController(command=cmd)
 
-    return ALoader(gdbmi, mapping["gdb_sockets_path"])
+    return ALoader(gdbmi, mapping["gdb_sockets_path"], asm_reader)
 
 
 # Invoke tasks

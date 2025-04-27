@@ -28,14 +28,14 @@ class Config:
     BUILD_PATH: str = "{PROJECT_DIR}/build-{uuid}"
     # QEMU 配置
     QEMU_BIN: str = "qemu-system-arm"  # 根据目标架构修改
-    QEMU_GDB_ARGS: str = '-chardev "socket,path={gdb_sockets_path},server=on,wait=off,id=gdb0" -gdb chardev:gdb0'
+    QEMU_GDB_ARGS: str = '-chardev "socket,path={sockets_path},server=on,wait=off,id=gdb0" -gdb chardev:gdb0'
     QEMU_ADDITION_ARGS: str = "-M microbit -nographic -S -s"  # -s 启用GDB服务器, -S 启动时暂停CPU
     # GDB 配置
     GDB_BIN: str = "arm-none-eabi-gdb"
     # 目标程序
     TARGET_NAME: str = "cortex-m0-microbit.elf"  # 编译生成的对象名称
     SOCKETS_NAME: str = "gdb-socket.sock"
-    GDB_SOCKETS_PATH: str = "{PROJECT_DIR}/build-{uuid}/{SOCKETS_NAME}"
+    SOCKETS_PATH: str = "{PROJECT_DIR}/build-{uuid}/{SOCKETS_NAME}"
 
     def get_format_map(self) -> dict:
         ret = asdict(self)
@@ -93,7 +93,7 @@ def build(c: Context, config: Config):
     cmake_build_path = mapping["build_path"]
     with c.cd(cmake_build_path):
         # setup CMake
-        c.run(f"cmake -DCMAKE_BUILD_TYPE=Debug -S {mapping["PROJECT_DIR"]} -B .")
+        c.run(f"cmake -DCMAKE_BUILD_TYPE=Debug -S {mapping['PROJECT_DIR']} -B .")
         # build
         c.run(f"cmake --build . --target {config.TARGET_NAME}")
 
@@ -159,7 +159,7 @@ def debug(c: Context, config: Config, asm_reader=None):
     # setup GDB Controller
     gdbmi = gdbcontroller.GdbController(command=cmd)
 
-    return ALoader(gdbmi, mapping["gdb_sockets_path"], asm_reader)
+    return ALoader(gdbmi, mapping["sockets_path"], asm_reader)
 
 
 # Invoke tasks

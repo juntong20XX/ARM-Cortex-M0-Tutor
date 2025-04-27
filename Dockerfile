@@ -7,16 +7,16 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install dependencies
 RUN apt-get update && \
 apt-get install -y wget gnupg openssh-server gdb-multiarch python3-full python3-pip git && \
-apt-get install -y arm-none-eabi cmake&& \
 apt-get install -y qemu-system-arm && \
+apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi cmake&& \
 apt-get install -y python3-invoke && \
+apt-get install -y jupyter && \
 apt-get clean && \
 rm -rf /var/lib/apt/lists/*
 
 # Install project
 WORKDIR /root
-COPY ARM_Cortex_M0_Tutor .
-COPY qemu_m0 .
+COPY . .
 RUN pip3 install --break-system-packages pygdbmi
 
 # Configure SSH if the 'develop' environment variable is set
@@ -48,9 +48,11 @@ RUN if [ "$develop" = "true" ]; then \
 
 # Expose SSH port if in development mode
 EXPOSE 22
-# Expose Renode port
-EXPOSE 21234
+# Expose jupyter lab port
+EXPOSE 8888
 
 # Start SSH in the background if in development mode
 # CMD if [ "$develop" = "true" ]; then service ssh start;fi; renode -P 21234 --disable-gui;fi
-CMD if [ "$develop" = "true" ]; then /usr/sbin/sshd -D ;else python3;fi
+#CMD if [ "$develop" = "true" ]; then /usr/sbin/sshd -D;else jupyter notebook --allow-root --ip=0.0.0.0; fi
+CMD if [ "$develop" = "true" ]; then service ssh start;fi; jupyter notebook --allow-root --ip=0.0.0.0
+

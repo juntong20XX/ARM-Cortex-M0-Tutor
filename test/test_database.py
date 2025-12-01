@@ -1,10 +1,12 @@
 """
 Unit tests for database models
 """
-from app.database.models import DBBase, DBUser, DBProject
-
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker, Session
+from app.database import enter
+from app.settings import AppSetting
+from app.database import (DBBase, DBUser, DBProject,
+                          init_database, db_context,
+                          find_user_by_username, find_user_by_email_host,
+                          find_project_by_owner_name, find_project_by_name)
 
 import unittest
 import datetime
@@ -19,242 +21,217 @@ class TestDatabaseModels(unittest.TestCase):
         setup SessionLocal
         """
         # 使用内存数据库进行测试
-        cls.engine = create_engine("sqlite:///:memory:", echo=False)
-
-        # SQLite 启用外键约束
-        @event.listens_for(cls.engine, "connect")
-        def set_sqlite_pragma(dbapi_conn, connection_record):
-            cursor = dbapi_conn.cursor()
-            cursor.execute("PRAGMA foreign_keys=ON")
-            cursor.close()
-
-        cls.SessionLocal = sessionmaker(bind=cls.engine)
+        init_database(AppSetting(database_url="sqlite:///:memory:"))
 
     def setUp(self):
         """
         creat a session
         """
-        # 创建所有表
-        DBBase.metadata.create_all(self.engine)
-        # 创建新的 session
-        self.session: Session = self.SessionLocal()
-
-    def tearDown(self):
-        """
-        close session and delete all tables.
-        """
-        self.session.close()
         # 删除所有表
-        DBBase.metadata.drop_all(self.engine)
+        DBBase.metadata.drop_all(enter._engine)
+        # 创建所有表
+        DBBase.metadata.create_all(enter._engine)
 
     # ========== User Model Tests ==========
 
     def test_create_user(self):
-        user = DBUser(
-            username="testuser",
-            email="test@example.com",
-            hashed_password="hashed_pw_123"
-        )
-        self.session.add(user)
-        self.session.commit()
 
-        # 验证
-        self.assertIsNotNone(user.uuid)
-        self.assertEqual(len(user.uuid), 36)  # UUID 字符串长度
-        self.assertEqual(user.username, "testuser")
-        self.assertTrue(user.is_active)  # 默认为 True
-        self.assertIsInstance(user.created_at, datetime.datetime)
+        with db_context() as session:
+            user = DBUser(
+                username="testuser",
+                email="test@example.com",
+                hashed_password="hashed_pw_123"
+            )
+            session.add(user)
+
+
+        with db_context() as session:
+            # 从数据库中通过唯一标识符（如 username）把用户找出来
+            retrieved_user = session.query(DBUser).filter_by(username="testuser").first()
+
+            # 验证
+            # 对查询出的对象进行断言
+            self.assertIsNotNone(retrieved_user)  # 首先确保对象被找到了
+            self.assertIsNotNone(retrieved_user.uuid)
+            self.assertEqual(len(retrieved_user.uuid), 36)
+            self.assertEqual(retrieved_user.username, "testuser")
+            self.assertTrue(retrieved_user.is_active)
+            self.assertIsInstance(retrieved_user.created_at, datetime.datetime)
 
     def test_user_uuid_auto_generation(self):
         """测试 UUID 自动生成"""
-        user1 = DBUser(username="user1", email="user1@test.com", hashed_password="pw1")
-        user2 = DBUser(username="user2", email="user2@test.com", hashed_password="pw2")
 
-        self.session.add_all([user1, user2])
-        self.session.commit()
+        with db_context() as session:
+            user1 = DBUser(username="user1", email="user1@test.com", hashed_password="pw1")
+            user2 = DBUser(username="user2", email="user2@test.com", hashed_password="pw2")
+            session.add_all([user1, user2])
 
-        # UUID 应该不同
-        self.assertNotEqual(user1.uuid, user2.uuid)
+        with db_context() as session:
+            # UUID 应该不同
+            users = find_user_by_email_host(session, 'test.com')
+            self.assertNotEqual(users[0].uuid, users[1].uuid)
 
     def test_user_unique_constraints(self):
         """测试用户唯一性约束"""
-        user1 = DBUser(username="sameuser", email="email1@test.com", hashed_password="pw")
-        self.session.add(user1)
-        self.session.commit()
-
-        # 尝试创建相同 username 的用户
-        user2 = DBUser(username="sameuser", email="email2@test.com", hashed_password="pw")
-        self.session.add(user2)
+        with db_context() as session:
+            user1 = DBUser(username="sameuser", email="email1@test.com", hashed_password="pw")
+            session.add(user1)
 
         with self.assertRaises(Exception):  # 会抛出 IntegrityError
-            self.session.commit()
-
-        self.session.rollback()
+            with db_context() as session:
+                # 尝试创建相同 username 的用户
+                user2 = DBUser(username="sameuser", email="email2@test.com", hashed_password="pw")
+                session.add(user2)
 
         # 尝试创建相同 email 的用户
-        user3 = DBUser(username="diffuser", email="email1@test.com", hashed_password="pw")
-        self.session.add(user3)
-
         with self.assertRaises(Exception):
-            self.session.commit()
+            with db_context() as session:
+                user3 = DBUser(username="diffuser", email="email1@test.com", hashed_password="pw")
+                session.add(user3)
 
     def test_user_nullable_fields(self):
         """测试用户必填字段"""
         # 缺少 username 应该失败
         with self.assertRaises(Exception):
             user = DBUser(email="test@test.com", hashed_password="pw")
-            self.session.add(user)
-            self.session.commit()
+            with db_context() as session:
+                session.add(user)
 
     # ========== Project Model Tests ==========
 
     def test_create_project(self):
         """测试创建项目"""
         # 先创建用户
-        user = DBUser(username="owner", email="owner@test.com", hashed_password="pw")
-        self.session.add(user)
-        self.session.commit()
+        with db_context() as session:
+            user = DBUser(username="owner", email="owner@test.com", hashed_password="pw")
+            session.add(user)
 
         # 创建项目
-        project = DBProject(
-            name="Test Project",
-            content="Project content here",
-            description="A test project",
-            owner_id=user.uuid
-        )
-        self.session.add(project)
-        self.session.commit()
+        with db_context() as session:
+            user = find_user_by_username(session, "owner")[0]
+            project = DBProject(
+                name="Test Project",
+                content="Project content here",
+                description="A test project",
+                owner_id=user.uuid
+            )
+            session.add(project)
 
         # 验证
-        self.assertIsNotNone(project.uuid)
-        self.assertEqual(project.name, "Test Project")
-        self.assertEqual(project.owner_id, user.uuid)
-        self.assertIsInstance(project.created_at, datetime.datetime)
+        with db_context() as session:
+            user = find_user_by_username(session, "owner")[0]
+            project = find_project_by_name(session, "Test Project")[0]
+            self.assertIsNotNone(project.uuid)
+            self.assertEqual(project.name, "Test Project")
+            self.assertEqual(project.owner_id, user.uuid)
+            self.assertIsInstance(project.created_at, datetime.datetime)
 
     def test_project_optional_description(self):
         """测试项目描述字段可选"""
         user = DBUser(username="owner", email="owner@test.com", hashed_password="pw")
-        self.session.add(user)
-        self.session.commit()
+        with db_context() as session:
+            session.add(user)
 
-        project = DBProject(
-            name="No Description Project",
-            content="Content",
-            owner_id=user.uuid
-            # 不提供 description
-        )
-        self.session.add(project)
-        self.session.commit()
+            session.commit()
+            session.refresh(user)
 
-        self.assertIsNone(project.description)
+            project = DBProject(
+                name="No Description Project",
+                content="Content",
+                owner_id=user.uuid
+                # 不提供 description
+            )
+            session.add(project)
+
+        with db_context() as session:
+            project = find_project_by_name(session, "No Description Project")[0]
+            self.assertIsNone(project.description)
 
     # ========== Relationship Tests ==========
 
     def test_user_project_relationship(self):
         """测试用户和项目的关系"""
-        user = DBUser(username="owner", email="owner@test.com", hashed_password="pw")
-        self.session.add(user)
-        self.session.commit()
+        with db_context() as session:
+            # 创建用户
+            user = DBUser(username="owner", email="owner@test.com", hashed_password="pw")
+            session.add(user)
+            session.commit()
 
-        # 通过关系添加项目
-        project1 = DBProject(name="Proj1", content="Content1", owner_id=user.uuid)
-        project2 = DBProject(name="Proj2", content="Content2", owner_id=user.uuid)
+            # 通过关系添加项目
+            project1 = DBProject(name="Proj1", content="Content1", owner_id=user.uuid)
+            project2 = DBProject(name="Proj2", content="Content2", owner_id=user.uuid)
 
-        self.session.add_all([project1, project2])
-        self.session.commit()
+            session.add_all([project1, project2])
 
-        # 刷新用户对象
-        self.session.refresh(user)
+            # 刷新用户对象
+            session.refresh(user)
 
-        # 验证关系
-        self.assertEqual(len(user.projects), 2)
-        self.assertIn(project1, user.projects)
-        self.assertIn(project2, user.projects)
+            # 验证关系
+        with db_context() as session:
+            user = find_user_by_username(session, "owner")[0]
+            project1, project2 = find_project_by_owner_name(session, "owner")
+
+            self.assertEqual(len(user.projects), 2)
+            self.assertIn(project1, user.projects)
+            self.assertIn(project2, user.projects)
 
     def test_project_owner_relationship(self):
         """测试从项目访问所有者"""
-        # ✅ 修复：先 commit user，再创建 project
-        user = DBUser(username="owner", email="owner@test.com", hashed_password="pw")
-        self.session.add(user)
-        self.session.commit()  # 先提交用户
+        # 先 commit user，再创建 project
+        with db_context() as session:
+            user = DBUser(username="owner", email="owner@test.com", hashed_password="hashed_password")
+            session.add(user)
+            # 先提交用户
+            session.commit()
+            # 然后创建项目
+            project = DBProject(name="Proj", content="Content", owner_id=user.uuid)
+            session.add(project)
 
-        # 然后创建项目
-        project = DBProject(name="Proj", content="Content", owner_id=user.uuid)
-        self.session.add(project)
-        self.session.commit()
-
-        # 刷新项目对象
-        self.session.refresh(project)
-
-        # 验证反向关系
-        self.assertEqual(project.owner.username, "owner")
-        self.assertEqual(project.owner.uuid, user.uuid)
+        with db_context() as session:
+            project = find_project_by_name(session, "Proj")[0]
+            user = find_user_by_username(session, "owner")[0]
+            # 验证反向关系
+            self.assertEqual(project.owner.username, "owner")
+            self.assertEqual(project.owner.uuid, user.uuid)
 
     def test_cascade_delete(self):
         """测试级联删除：删除用户时项目也被删除"""
-        user = DBUser(username="owner", email="owner@test.com", hashed_password="pw")
-        self.session.add(user)
-        self.session.commit()
+        with db_context() as session:
+            user = DBUser(username="owner", email="owner@test.com", hashed_password="hashed_password")
+            session.add(user)
+            session.commit()
+            session.refresh(user)
 
-        project = DBProject(name="Proj", content="Content", owner_id=user.uuid)
-        self.session.add(project)
-        self.session.commit()
+            project = DBProject(name="Proj", content="Content", owner_id=user.uuid)
+            session.add(project)
+            session.commit()
+            session.refresh(project)
 
-        project_uuid = project.uuid
+            project_uuid = project.uuid
 
-        # 删除用户
-        self.session.delete(user)
-        self.session.commit()
+        with db_context() as session:
+            user = find_user_by_username(session, "owner")[0]
+            # 删除用户
+            session.delete(user)
 
-        # 项目应该也被删除
-        deleted_project = self.session.query(DBProject).filter_by(uuid=project_uuid).first()
-        self.assertIsNone(deleted_project)
+        with db_context() as session:
+            # 项目应该也被删除
+            deleted_project = session.query(DBProject).filter_by(uuid=project_uuid).first()
+            # 验证
+            self.assertIsNone(deleted_project)
 
     def test_foreign_key_constraint(self):
         """测试外键约束"""
-        # 尝试创建项目但指定不存在的 owner_id
-        project = DBProject(
-            name="Orphan Project",
-            content="Content",
-            owner_id="non-existent-uuid"
-        )
-        self.session.add(project)
-
-        # ✅ 修复：现在 SQLite 会正确抛出外键错误
         from sqlalchemy.exc import IntegrityError
         with self.assertRaises(IntegrityError):
-            self.session.commit()
-
-    # ========== Query Tests ==========
-
-    def test_query_user_by_username(self):
-        """测试按用户名查询"""
-        user = DBUser(username="findme", email="find@test.com", hashed_password="pw")
-        self.session.add(user)
-        self.session.commit()
-
-        found_user = self.session.query(DBUser).filter_by(username="findme").first()
-        self.assertIsNotNone(found_user)
-        self.assertEqual(found_user.email, "find@test.com")
-
-    def test_query_projects_by_user(self):
-        """测试查询用户的所有项目"""
-        user = DBUser(username="owner", email="owner@test.com", hashed_password="pw")
-        self.session.add(user)
-        self.session.commit()
-
-        for i in range(3):
-            project = DBProject(
-                name=f"Project {i}",
-                content=f"Content {i}",
-                owner_id=user.uuid
-            )
-            self.session.add(project)
-        self.session.commit()
-
-        projects = self.session.query(DBProject).filter_by(owner_id=user.uuid).all()
-        self.assertEqual(len(projects), 3)
-
+            with db_context() as session:
+                # 尝试创建项目但指定不存在的 owner_id
+                project = DBProject(
+                    name="Orphan Project",
+                    content="Content",
+                    owner_id="non-existent-uuid"
+                )
+                session.add(project)
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,7 +15,7 @@ _engine = None
 _SessionLocal = None
 
 
-def load_database(app_setting: None | AppSetting = None):
+def init_database(app_setting: None | AppSetting = None):
     """
     load database
     :param app_setting: None -> setting.load_config
@@ -23,11 +23,11 @@ def load_database(app_setting: None | AppSetting = None):
     """
     if app_setting is None:
         app_setting = load_config()
-    return _load_database_from_url(app_setting.database_url)
+    return _init_database_from_url(app_setting.database_url)
 
 
 
-def _load_database_from_url(url: str):
+def _init_database_from_url(url: str):
     global _engine, _SessionLocal
 
     _engine = create_engine(url)
@@ -53,7 +53,7 @@ def get_db() -> Session:
     :return: Session
     """
     if _SessionLocal is None:
-        raise RuntimeError("Database not initialized. Call load_database() first.")
+        raise RuntimeError("Database not initialized. Call init_database() first.")
 
     db = _SessionLocal()
     # 创建表
@@ -62,10 +62,11 @@ def get_db() -> Session:
 
 
 @contextmanager
-def get_db_context():
+def db_context():
     """
     use `with` to get db session, with auto commit and rollback
     :return: Session
+    :raise RuntimeError: when an Exception caught.
     """
     db = get_db()
     try:
@@ -77,4 +78,4 @@ def get_db_context():
     finally:
         db.close()
 
-__all__ = ["get_db", "get_db_context", "load_database"]
+__all__ = ["get_db", "db_context", "init_database"]

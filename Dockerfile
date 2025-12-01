@@ -14,11 +14,6 @@ apt-get install -y jupyter && \
 apt-get clean && \
 rm -rf /var/lib/apt/lists/*
 
-# Install project
-WORKDIR /root
-COPY . .
-RUN pip3 install --break-system-packages pygdbmi
-
 # Configure SSH if the 'develop' environment variable is set
 ARG develop AUTHORIZED_KEYS_PATH ROOT_PSW
 COPY ${AUTHORIZED_KEYS_PATH} /root/authorized_keys
@@ -45,6 +40,11 @@ RUN if [ "$develop" = "true" ]; then \
         fi; \
         chmod 600 /root/.ssh/authorized_keys; \
     fi;
+
+# Install project
+WORKDIR /root
+COPY . .
+RUN pip3 install --break-system-packages pygdbmi
 
 # Expose SSH port if in development mode
 EXPOSE 22

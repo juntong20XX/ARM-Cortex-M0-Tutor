@@ -1,0 +1,45 @@
+services:
+  # --- Authelia 服务 ---
+  ACT-auth-system-authelia:
+    image: authelia/authelia
+    container_name: ACT-auth-system-authelia
+    volumes:
+      - ./config:/config
+    networks:
+      - ACT-auth-system
+    ports:
+      - "9091:9091"
+    environment:
+      - TZ=Asia/Shanghai
+#      - AUTHELIA_JWT_SECRET=generate_a_secure_random_string_here
+      - AUTHELIA_SESSION_SECRET=2hwjxfE6JgarMsXkAAAHP2IXUxHWbWq2AyzRYLsb6gRJ83iHgdRrYITVX11M99QP
+      - AUTHELIA_STORAGE_POSTGRES_PASSWORD=authelia_db_passw0rd
+    depends_on:
+      - ACT-auth-system-redis
+      - ACT-auth-system-postgres
+
+  # --- Redis (用于会话存储) ---
+  ACT-auth-system-redis:
+    image: redis:alpine
+    container_name: ACT-auth-system-redis
+    volumes:
+      - ./cache/redis_data:/data
+    networks:
+      - ACT-auth-system
+
+  # --- PostgreSQL (用于存储 TOTP/WebAuthn 数据) ---
+  ACT-auth-system-postgres:
+    image: postgres:15
+    container_name: ACT-auth-system-postgres
+    volumes:
+      - ./cache/postgres_data:/var/lib/postgresql/data
+    networks:
+      - ACT-auth-system
+    environment:
+      - POSTGRES_USER=authelia
+      - POSTGRES_PASSWORD=authelia_db_passw0rd
+      - POSTGRES_DB=authelia
+
+networks:
+  ACT-auth-system:
+    driver: bridge

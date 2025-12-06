@@ -16,6 +16,7 @@ from sqlalchemy import (
     Text,
     ForeignKey,
     UniqueConstraint,
+    Table,
 )
 
 
@@ -23,6 +24,36 @@ class DBBase(DeclarativeBase):
     """
     The basic class for database.
     """
+
+
+# 用户-组 多对多关联表
+user_group_association = Table(
+    "user_group_association",
+    DBBase.metadata,
+    Column("user_id", String(36), ForeignKey("users.uuid"), primary_key=True),
+    Column("group_id", String(36), ForeignKey("groups.uuid"), primary_key=True),
+)
+
+
+class DBGroup(DBBase):
+    """
+    用户组模型，用于权限管理。
+    每个用户可以属于多个组，每个组可以包含多个用户。
+    """
+    __tablename__ = "groups"
+
+    uuid: Mapped[str] = mapped_column(String(36), primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(500))  # 组描述
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
+    )
+
+    # 多对多关系: 组包含的用户
+    users: Mapped[list["DBUser"]] = relationship(
+        "DBUser", secondary=user_group_association, back_populates="groups"
+    )
 
 
 class PasswordAuth(DBBase):
@@ -90,12 +121,17 @@ class DBUser(DBBase):
         DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
     )
 
-     # 一对一关系: 任选其一就好，由业务逻辑保证 XXX: 没有检查是否声明了定义方式
+    # 一对一关系: 任选其一就好，由业务逻辑保证 XXX: 没有检查是否声明了定义方式
     password_auth: Mapped[Optional["PasswordAuth"]] = relationship(
         "PasswordAuth", back_populates="user", uselist=False
     )
     oauth_auth: Mapped[Optional["OAuthAuthentication"]] = relationship(
         "OAuthAuthentication", back_populates="user", uselist=False
+    )
+
+    # 多对多关系: 用户所属的组
+    groups: Mapped[list["DBGroup"]] = relationship(
+        "DBGroup", secondary=user_group_association, back_populates="users"
     )
 
     # 关系的定义

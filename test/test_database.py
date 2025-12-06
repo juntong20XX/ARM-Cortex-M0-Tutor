@@ -6,8 +6,12 @@ from app.core.settings import AppSetting
 from app.database import (init_database, db_context,
                           add_user,
                           find_user_by_username, find_user_by_email_host,
-                          find_project_by_owner_name, find_project_by_name)
-from app.database.models import DBBase, DBUser, DBProject
+                          find_project_by_owner_name, find_project_by_name,
+                          add_group, find_group_by_name, find_group_by_uuid,
+                          find_all_groups, update_group, delete_group,
+                          add_user_to_group, remove_user_from_group,
+                          get_user_groups, get_group_users, find_users_by_group)
+from app.database.models import DBBase, DBUser, DBProject, DBGroup
 
 import unittest
 import datetime
@@ -234,6 +238,323 @@ class TestDatabaseModels(unittest.TestCase):
                     owner_id="non-existent-uuid"
                 )
                 session.add(project)
+
+
+class TestGroupModels(unittest.TestCase):
+    """Test cases for Group models and user-group relationships"""
+
+    @classmethod
+    def setUpClass(cls):
+        """setup SessionLocal"""
+        init_database(AppSetting(database_url="sqlite:///:memory:", secret_key="secret_key"))
+
+    def setUp(self):
+        """creat a session"""
+        DBBase.metadata.drop_all(enter._engine)
+        DBBase.metadata.create_all(enter._engine)
+
+    # ========== Group Model Tests ==========
+
+    def test_create_group(self):
+        """测试创建用户组"""
+        with db_context() as session:
+            group = add_group(session, name="admin", description="管理员组")
+
+        with db_context() as session:
+            groups = find_group_by_name(session, "admin")
+            self.assertEqual(len(groups), 1)
+            self.assertEqual(groups[0].name, "admin")
+            self.assertEqual(groups[0].description, "管理员组")
+            self.assertIsNotNone(groups[0].uuid)
+            self.assertEqual(len(groups[0].uuid), 36)
+
+    def test_create_group_with_uuid(self):
+        """测试使用指定 UUID 创建用户组"""
+        custom_uuid = "12345678-1234-1234-1234-123456789012"
+        with db_context() as session:
+            group = add_group(session, name="developers", uuid=custom_uuid)
+
+        with db_context() as session:
+            groups = find_group_by_uuid(session, custom_uuid)
+            self.assertEqual(len(groups), 1)
+            self.assertEqual(groups[0].uuid, custom_uuid)
+
+    def test_create_duplicate_group_raises_error(self):
+        """测试创建重复组名会抛出错误"""
+        with db_context() as session:
+            add_group(session, name="admin")
+
+        with self.assertRaises(ValueError):
+            with db_context() as session:
+                add_group(session, name="admin")
+
+    def test_find_all_groups(self):
+        """测试获取所有用户组"""
+        with db_context() as session:
+            add_group(session, name="admin")
+            add_group(session, name="users")
+            add_group(session, name="developers")
+
+        with db_context() as session:
+            groups = find_all_groups(session)
+            self.assertEqual(len(groups), 3)
+            group_names = [g.name for g in groups]
+            self.assertIn("admin", group_names)
+            self.assertIn("users", group_names)
+            self.assertIn("developers", group_names)
+
+    def test_update_group(self):
+        """测试更新用户组"""
+        with db_context() as session:
+            add_group(session, name="old_name", description="旧描述")
+
+        with db_context() as session:
+            updated = update_group(session, name="old_name", 
+                                   new_name="new_name", description="新描述")
+            self.assertEqual(updated.name, "new_name")
+            self.assertEqual(updated.description, "新描述")
+
+        with db_context() as session:
+            groups = find_group_by_name(session, "new_name")
+            self.assertEqual(len(groups), 1)
+            self.assertEqual(groups[0].description, "新描述")
+
+    def test_update_group_duplicate_name_raises_error(self):
+        """测试更新组名为已存在的组名会抛出错误"""
+        with db_context() as session:
+            add_group(session, name="group1")
+            add_group(session, name="group2")
+
+        with self.assertRaises(ValueError):
+            with db_context() as session:
+                update_group(session, name="group1", new_name="group2")
+
+    def test_update_nonexistent_group_raises_error(self):
+        """测试更新不存在的组会抛出错误"""
+        with self.assertRaises(KeyError):
+            with db_context() as session:
+                update_group(session, name="nonexistent")
+
+    def test_delete_group(self):
+        """测试删除用户组"""
+        with db_context() as session:
+            add_group(session, name="to_delete")
+
+        with db_context() as session:
+            result = delete_group(session, name="to_delete")
+            self.assertTrue(result)
+
+        with db_context() as session:
+            groups = find_group_by_name(session, "to_delete")
+            self.assertEqual(len(groups), 0)
+
+    def test_delete_nonexistent_group_raises_error(self):
+        """测试删除不存在的组会抛出错误"""
+        with self.assertRaises(KeyError):
+            with db_context() as session:
+                delete_group(session, name="nonexistent")
+
+    # ========== User-Group Relationship Tests ==========
+
+    def test_add_user_to_group(self):
+        """测试将用户添加到组"""
+        with db_context() as session:
+            user = DBUser(username="testuser", email="test@example.com")
+            session.add(user)
+            add_group(session, name="admin")
+
+        with db_context() as session:
+            user = find_user_by_username(session, "testuser")[0]
+            add_user_to_group(session, user.uuid, "admin")
+
+        with db_context() as session:
+            user = find_user_by_username(session, "testuser")[0]
+            self.assertEqual(len(user.groups), 1)
+            self.assertEqual(user.groups[0].name, "admin")
+
+    def test_add_user_to_multiple_groups(self):
+        """测试将用户添加到多个组"""
+        with db_context() as session:
+            user = DBUser(username="testuser", email="test@example.com")
+            session.add(user)
+            add_group(session, name="admin")
+            add_group(session, name="developers")
+            add_group(session, name="users")
+
+        with db_context() as session:
+            user = find_user_by_username(session, "testuser")[0]
+            add_user_to_group(session, user.uuid, "admin")
+            add_user_to_group(session, user.uuid, "developers")
+            add_user_to_group(session, user.uuid, "users")
+
+        with db_context() as session:
+            user = find_user_by_username(session, "testuser")[0]
+            self.assertEqual(len(user.groups), 3)
+            group_names = [g.name for g in user.groups]
+            self.assertIn("admin", group_names)
+            self.assertIn("developers", group_names)
+            self.assertIn("users", group_names)
+
+    def test_add_user_to_same_group_twice_raises_error(self):
+        """测试重复添加用户到同一组会抛出错误"""
+        with db_context() as session:
+            user = DBUser(username="testuser", email="test@example.com")
+            session.add(user)
+            add_group(session, name="admin")
+
+        with db_context() as session:
+            user = find_user_by_username(session, "testuser")[0]
+            add_user_to_group(session, user.uuid, "admin")
+
+        with self.assertRaises(ValueError):
+            with db_context() as session:
+                user = find_user_by_username(session, "testuser")[0]
+                add_user_to_group(session, user.uuid, "admin")
+
+    def test_remove_user_from_group(self):
+        """测试从组中移除用户"""
+        with db_context() as session:
+            user = DBUser(username="testuser", email="test@example.com")
+            session.add(user)
+            add_group(session, name="admin")
+
+        with db_context() as session:
+            user = find_user_by_username(session, "testuser")[0]
+            add_user_to_group(session, user.uuid, "admin")
+
+        with db_context() as session:
+            user = find_user_by_username(session, "testuser")[0]
+            remove_user_from_group(session, user.uuid, "admin")
+
+        with db_context() as session:
+            user = find_user_by_username(session, "testuser")[0]
+            self.assertEqual(len(user.groups), 0)
+
+    def test_remove_user_not_in_group_raises_error(self):
+        """测试移除不在组中的用户会抛出错误"""
+        with db_context() as session:
+            user = DBUser(username="testuser", email="test@example.com")
+            session.add(user)
+            add_group(session, name="admin")
+
+        with self.assertRaises(ValueError):
+            with db_context() as session:
+                user = find_user_by_username(session, "testuser")[0]
+                remove_user_from_group(session, user.uuid, "admin")
+
+    def test_get_user_groups(self):
+        """测试获取用户所属的所有组"""
+        with db_context() as session:
+            user = DBUser(username="testuser", email="test@example.com")
+            session.add(user)
+            add_group(session, name="admin")
+            add_group(session, name="developers")
+
+        with db_context() as session:
+            user = find_user_by_username(session, "testuser")[0]
+            add_user_to_group(session, user.uuid, "admin")
+            add_user_to_group(session, user.uuid, "developers")
+
+        with db_context() as session:
+            user = find_user_by_username(session, "testuser")[0]
+            groups = get_user_groups(session, user.uuid)
+            self.assertEqual(len(groups), 2)
+
+    def test_get_group_users(self):
+        """测试获取组中的所有用户"""
+        with db_context() as session:
+            user1 = DBUser(username="user1", email="user1@example.com")
+            user2 = DBUser(username="user2", email="user2@example.com")
+            session.add_all([user1, user2])
+            add_group(session, name="admin")
+
+        with db_context() as session:
+            user1 = find_user_by_username(session, "user1")[0]
+            user2 = find_user_by_username(session, "user2")[0]
+            add_user_to_group(session, user1.uuid, "admin")
+            add_user_to_group(session, user2.uuid, "admin")
+
+        with db_context() as session:
+            users = get_group_users(session, "admin")
+            self.assertEqual(len(users), 2)
+            usernames = [u.username for u in users]
+            self.assertIn("user1", usernames)
+            self.assertIn("user2", usernames)
+
+    def test_find_users_by_group(self):
+        """测试通过组名查找用户"""
+        with db_context() as session:
+            user1 = DBUser(username="admin_user", email="admin@example.com")
+            user2 = DBUser(username="dev_user", email="dev@example.com")
+            session.add_all([user1, user2])
+            add_group(session, name="admin")
+            add_group(session, name="developers")
+
+        with db_context() as session:
+            user1 = find_user_by_username(session, "admin_user")[0]
+            user2 = find_user_by_username(session, "dev_user")[0]
+            add_user_to_group(session, user1.uuid, "admin")
+            add_user_to_group(session, user2.uuid, "developers")
+
+        with db_context() as session:
+            admin_users = find_users_by_group(session, "admin")
+            self.assertEqual(len(admin_users), 1)
+            self.assertEqual(admin_users[0].username, "admin_user")
+
+            dev_users = find_users_by_group(session, "developers")
+            self.assertEqual(len(dev_users), 1)
+            self.assertEqual(dev_users[0].username, "dev_user")
+
+    def test_add_user_with_groups(self):
+        """测试创建用户时直接分配组"""
+        with db_context() as session:
+            add_group(session, name="admin")
+            add_group(session, name="users")
+
+        with db_context() as session:
+            user = add_user(session, 
+                           username="newuser", 
+                           email="new@example.com",
+                           groups=["admin", "users"])
+
+        with db_context() as session:
+            user = find_user_by_username(session, "newuser")[0]
+            self.assertEqual(len(user.groups), 2)
+            group_names = [g.name for g in user.groups]
+            self.assertIn("admin", group_names)
+            self.assertIn("users", group_names)
+
+    def test_add_user_with_nonexistent_group_raises_error(self):
+        """测试创建用户时指定不存在的组会抛出错误"""
+        with self.assertRaises(KeyError):
+            with db_context() as session:
+                add_user(session,
+                        username="newuser",
+                        email="new@example.com",
+                        groups=["nonexistent_group"])
+
+    def test_group_bidirectional_relationship(self):
+        """测试组与用户的双向关系"""
+        with db_context() as session:
+            user = DBUser(username="testuser", email="test@example.com")
+            session.add(user)
+            group = add_group(session, name="admin")
+
+        with db_context() as session:
+            user = find_user_by_username(session, "testuser")[0]
+            add_user_to_group(session, user.uuid, "admin")
+
+        with db_context() as session:
+            # 从用户端检查
+            user = find_user_by_username(session, "testuser")[0]
+            self.assertEqual(len(user.groups), 1)
+            self.assertEqual(user.groups[0].name, "admin")
+
+            # 从组端检查
+            group = find_group_by_name(session, "admin")[0]
+            self.assertEqual(len(group.users), 1)
+            self.assertEqual(group.users[0].username, "testuser")
+
 
 if __name__ == "__main__":
     unittest.main()

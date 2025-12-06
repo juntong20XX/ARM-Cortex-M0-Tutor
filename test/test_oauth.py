@@ -30,9 +30,9 @@ if __name__ == "__main__":
         db.add_provider(session,
                         name="authelia",
                         client_id="ACT",
-                        client_secret="XXX",
-                        authorize_url="YYY",
-                        token_url="ZZZ",
+                        client_secret="0sI2SoOidEfjlCi3FnO7j8PeDJ16ABLIf7dRqrlNpJg9rn1F4gwMfarxEgSICr2H",
+                        authorize_url="https://fyp-auth.hogwarts.ac/.well-known/openid-configuration",
+                        token_url="https://fyp-act.hogwarts.ac/login-oauth/test",
                         user_info_url="https://exmple.com",
                         scope="openid profile email")
 

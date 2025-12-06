@@ -4,6 +4,7 @@ Unit tests for database models
 from app.database import enter
 from app.core.settings import AppSetting
 from app.database import (init_database, db_context,
+                          add_user,
                           find_user_by_username, find_user_by_email_host,
                           find_project_by_owner_name, find_project_by_name)
 from app.database.models import DBBase, DBUser, DBProject
@@ -37,11 +38,13 @@ class TestDatabaseModels(unittest.TestCase):
     def test_create_user(self):
 
         with db_context() as session:
-            user = DBUser(
-                username="testuser",
-                email="test@example.com"
-            )
-            session.add(user)
+            # user = DBUser(
+            #     username="testuser",
+            #     email="test@example.com"
+            # )
+            # session.add(user)
+            add_user(session, username="testuser", email="test@example.com",
+                     username_password=("tt", "123321"))
 
 
         with db_context() as session:

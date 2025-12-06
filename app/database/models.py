@@ -59,12 +59,11 @@ class OAuthAuthentication(DBBase):
     __tablename__ = "oauth_authentication"
 
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.uuid"), primary_key=True, unique=True)
+    user_sub: Mapped[str] = mapped_column(String(255), nullable=False)
 
     # 使用外键关联到 OAuthProvider 模型
-    provider_id: Mapped[str] = mapped_column(Integer, ForeignKey("oauth_providers.name"), nullable=False)
+    provider_name: Mapped[str] = mapped_column(String(50), ForeignKey("oauth_providers.name"), nullable=False)
 
-    open_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    email: Mapped[Optional[str]] = mapped_column(String(100))
 
     user: Mapped["DBUser"] = relationship("DBUser", back_populates="oauth_auth")
 
@@ -72,7 +71,7 @@ class OAuthAuthentication(DBBase):
     provider: Mapped["OAuthProvider"] = relationship()
 
     # 确保每个提供商的用户 ID 是唯一的
-    __table_args__ = (UniqueConstraint('provider_id', 'open_id', name='_provider_openid_uc'),)
+    __table_args__ = (UniqueConstraint('provider_name', name='_provider_openid_uc'),)
 
 
 class DBUser(DBBase):

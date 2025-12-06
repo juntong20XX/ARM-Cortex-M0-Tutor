@@ -1,8 +1,15 @@
-from .models import DBUser, DBProject, OAuthProvider
-from .enter import db_context
+"""
+
+"""
+from .models import DBUser, DBProject, OAuthProvider, PasswordAuth, OAuthAuthentication
+from ..core.security import get_password_hash
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker, DeclarativeBase
+
+import typing
+import uuid as uuid_module
+from datetime import datetime, UTC
 
 
 def find_project_by_name(session: Session, project_name: str) -> list[DBProject]:
@@ -41,7 +48,6 @@ def find_project_by_owner_id(session: Session, owner_id: str) -> list[DBProject]
     return session.query(DBProject).filter_by(owner_id=owner_id).all()
 
 
-
 def find_user_by_email_host(session: Session, email_host: str) -> list[DBUser]:
     """
     Found user sequence with the host of email, like `@outlook.com` or `liv.ac.uk`.
@@ -64,6 +70,127 @@ def find_user_by_username(session: Session, username: str) -> list[DBUser]:
     return session.query(DBUser).filter_by(username=username).all()
 
 
+def find_user_by_email(session: Session, email: str) -> list[DBUser]:
+    """
+    Found user sequence with email, the email need be full-matched.
+    :param session: a db Session
+    :param email: str, the email address.
+    :return:
+    """
+    return session.query(DBUser).filter_by(email=email).all()
+
+
+def find_user_by_provider(session: Session, provider: str) -> list[DBUser]:
+    """
+    Found user sequence with provider, the provider need be full-matched.
+    :param session: a db Session
+    :param provider: str, the provider name.
+    :return:
+    """
+    # 通过 OAuthAuthentication 表联合查询用户
+    query = select(DBUser).join(OAuthAuthentication).where(
+        OAuthAuthentication.provider_name == provider
+    )
+    return session.execute(query).scalars().all()
+
+
+def find_user_by_provider_and_sub(session: Session, provider: str, sub: str) -> list[DBUser]:
+    """
+    Found user sequence with provider and user's sub, the provider and sub need be full-matched.
+    :param session: a db Session
+    :param provider: str, the provider name.
+    :param sub: str, the user sub.
+    :return:
+    """
+    # 通过 OAuthAuthentication 表联合查询用户
+    query = select(DBUser).join(OAuthAuthentication).where(
+        OAuthAuthentication.provider_name == provider
+    ).where(OAuthAuthentication.user_sub == sub)
+    return session.execute(query).scalars().all()
+
+
+
+def add_user(session: Session,
+             username: str,
+             email: str,
+             uuid: None | str = None,
+             oauth_name_sub: None | typing.Iterable[str] = None,
+             username_password: None | typing.Iterable[str] = None,
+             created_at: None | datetime = None,
+             is_active: bool = True,
+             commit: bool = False) -> DBUser:
+    """
+    Add a new user to the database.
+    
+    :param session: a db Session
+    :param username: str, unique username for the user
+    :param email: str, unique email address for the user
+    :param uuid: uuid
+    :param oauth_name_sub: oauth (provider name, user sub)
+    :param username_password:
+    :param created_at:
+    :param is_active: bool, whether the user account is active (default: True)
+    :param commit: bool, whether to commit the session (default: False)
+    :return: DBUser object that was created
+    :raise ValueError: if user with the email already exists
+    :raise KeyError: if
+    """
+    # Check if email already exists
+    existing_users_by_email = find_user_by_email(session, email)
+    if existing_users_by_email:
+        raise ValueError(f"User with email '{email}' already exists")
+
+    kwarg = {
+        'username': username,
+        'email': email,
+        'is_active': is_active,
+        'updated_at': datetime.now(UTC),
+    }
+
+    if created_at:
+        kwarg["created_at"] = created_at
+
+    if uuid:
+        kwarg["uuid"] = uuid
+
+    if oauth_name_sub:
+        provider_name, sub = oauth_name_sub
+        providers = find_oauth_provider_by_name(session, provider_name)
+        if not providers:
+            raise KeyError(f"OAuth provider '{oauth_name_sub}' not found")
+        if not uuid:
+            uuid = str(uuid_module.uuid4())
+            kwarg["uuid"] = uuid
+        oauth_auth_kwargs = {"user_id": uuid, "provider_name": oauth_name_sub, "user_sub": sub}
+    if username_password:
+        username, password = username_password
+        if not uuid:
+            uuid = str(uuid_module.uuid4())
+            kwarg["uuid"] = uuid
+        up_kwargs = {
+            'user_id': uuid,
+            'username': username,
+            'password_hash': get_password_hash(password)
+        }
+
+    new_user = DBUser(**kwarg)
+    # Add to session and optionally commit
+    session.add(new_user)
+
+    if oauth_name_sub:
+        oauth_auth = OAuthAuthentication(user=new_user, **oauth_auth_kwargs)
+        session.add(oauth_auth)
+    if username_password:
+        up_auth = PasswordAuth(user=new_user, **up_kwargs)
+        session.add(up_auth)
+
+    if commit:
+        session.commit()
+        session.refresh(new_user)
+
+    return new_user
+
+
 def find_oauth_provider_by_name(session: Session, provider_name: str) -> list[OAuthProvider]:
     """
 
@@ -74,15 +201,15 @@ def find_oauth_provider_by_name(session: Session, provider_name: str) -> list[OA
     return session.query(OAuthProvider).filter_by(name=provider_name).all()
 
 
-def add_provider(session: Session, 
-                name: str,
-                client_id: str, 
-                client_secret: str,
-                authorize_url: str,
-                token_url: str,
-                user_info_url: str,
-                scope: str,
-                commit: bool = False) -> OAuthProvider:
+def add_provider(session: Session,
+                 name: str,
+                 client_id: str,
+                 client_secret: str,
+                 authorize_url: str,
+                 token_url: str,
+                 user_info_url: str,
+                 scope: str,
+                 commit: bool = False) -> OAuthProvider:
     """
     Add a new OAuth provider to the database.
     
@@ -101,7 +228,7 @@ def add_provider(session: Session,
     existing_providers = find_oauth_provider_by_name(session, name)
     if existing_providers:
         raise ValueError(f"OAuth provider with name '{name}' already exists")
-    
+
     # Create new provider
     new_provider = OAuthProvider(
         name=name,
@@ -112,25 +239,25 @@ def add_provider(session: Session,
         user_info_url=user_info_url,
         scope=scope
     )
-    
+
     # Add to session and commit
     session.add(new_provider)
     if commit:
         session.commit()
         session.refresh(new_provider)
-    
+
     return new_provider
 
 
 def update_provider(session: Session,
-                   name: str,
-                   client_id: str = None,
-                   client_secret: str = None,
-                   authorize_url: str = None,
-                   token_url: str = None,
-                   user_info_url: str = None,
-                   scope: str = None,
-                   commit: bool = False) -> OAuthProvider:
+                    name: str,
+                    client_id: str = None,
+                    client_secret: str = None,
+                    authorize_url: str = None,
+                    token_url: str = None,
+                    user_info_url: str = None,
+                    scope: str = None,
+                    commit: bool = False) -> OAuthProvider:
     """
     Update an existing OAuth provider in the database.
     
@@ -148,9 +275,9 @@ def update_provider(session: Session,
     providers = find_oauth_provider_by_name(session, name)
     if not providers:
         raise KeyError(f"OAuth provider with name '{name}' not found")
-    
+
     provider = providers[0]
-    
+
     # Update only the fields that are provided
     if client_id is not None:
         provider.client_id = client_id
@@ -168,5 +295,5 @@ def update_provider(session: Session,
     if commit:
         session.commit()
         session.refresh(provider)
-    
+
     return provider

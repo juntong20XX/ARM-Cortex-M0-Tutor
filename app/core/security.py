@@ -8,7 +8,7 @@ from passlib.context import CryptContext
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-pwd_context = CryptContext(schemes=["argon2id", "scrypt", "bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["argon2", "scrypt", "bcrypt"], deprecated="auto")
 
 ALGORITHM = "HS256"
 

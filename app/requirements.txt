@@ -3,5 +3,5 @@ SQLAlchemy
 tenacity
 python-jose[cryptography]
 pyjwt
-passlib[bcrypt]
+passlib[argon2, bcrypt]
 authlib

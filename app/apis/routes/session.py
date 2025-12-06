@@ -1,16 +1,17 @@
 """
 
 """
+from ..models import LoginSource
 from ... import database as db
 from ...core import settings
-
-from datetime import timedelta
-from typing import Annotated, Any
+from .. import models
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from authlib.integrations.starlette_client import OAuth
+
+import datetime
 
 
 router = APIRouter(tags=["session"])
@@ -75,10 +76,11 @@ async def login_direct_oauth(request: Request):
     return await provider.authorize_redirect(request, redirect_uri)
 
 
-@router.get("/login-oauth/{provider_name}")
+@router.get("/login-oauth/{provider_name}", response_model = models.UserBaseInfo)
 async def login_oauth(request: Request, provider_name: str):
     """
     OAuth 认证回调接口
+    :raise KeyError: More than One user found.
     """
     # TODO: 设计回复模型
     provider = getattr(oauth, provider_name)
@@ -91,7 +93,46 @@ async def login_oauth(request: Request, provider_name: str):
         if user:
             request.session['user'] = user
 
-        return {"message": "Login successful", "user": user}
+        user_info = await provider.userinfo(token=token)
+
+        # Check user info in database
+        with db.db_context() as session:
+            r = db.find_user_by_provider_and_sub(provider_name, user_info["sub"])
+            if len(r) == 1:
+                user = r[0]
+                return {
+                    "success": True,
+                    "uuid": user.uuid,
+                    "display_name": user.username,
+                    "email": user.email,
+                    "groups": ... # TODO
+                }
+            elif not r:
+                user = db.add_user(session,
+                                   username=user_info["name"],
+                                   email=user_info["email"],
+                                   oauth_name_sub=user_info["sub"],
+                                   )
+            else:
+                raise KeyError("Unintended settings s.login_action, get", provider_name)
+
+        return {"success": True,
+                "uuid": user_info["preferred_username"],
+                "display_name": user_info["name"],
+                "email": user_info["email"],
+                "groups": [],
+                "join_date": datetime.datetime.now(datetime.UTC).isoformat(),
+                "login_source": LoginSource.oauth,
+                "msg": ""}
     except Exception as e:
-        return {"error": str(e)}
+        return {
+            "success": False,
+            "msg": str(e),
+            "uuid": "",
+            "display_name": "",
+            "email": "",
+            "groups": [],
+            "join_date": "",
+            "login_source": LoginSource.oauth,
+        }
 

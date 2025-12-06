@@ -1,7 +1,7 @@
 """
 
 """
-from .models import DBUser, DBProject, OAuthProvider, PasswordAuth, OAuthAuthentication, DBGroup
+from .models import DBUser, DBProject, OAuthProvider, PasswordAuth, OAuthAuthentication, DBGroup, GroupMappingStrategy
 from ..core.security import get_password_hash
 
 from sqlalchemy import create_engine, select
@@ -110,6 +110,37 @@ def find_user_by_provider_and_sub(session: Session, provider: str, sub: str) -> 
 
 
 
+def apply_oauth_group_mapping(group_mapping: dict,
+                               unmapped_group_strategy: GroupMappingStrategy,
+                               oauth_groups: list[str]) -> list[str]:
+    """
+    根据 OAuth provider 的配置，将供应商组名映射到项目组名。
+    
+    :param group_mapping: dict, 供应商组名到项目组名的映射表，格式：{"供应商组名": "项目组名", ...}
+    :param unmapped_group_strategy: GroupMappingStrategy, 当供应商组名没有映射时的处理策略
+    :param oauth_groups: list[str], 来自 OAuth 供应商的组名列表
+    :return: list[str], 映射后的项目组名列表（已去重）
+    :raise ValueError: 如果未映射的组策略是 REJECT
+    """
+    project_group_names = []
+    
+    for provider_group_name in oauth_groups:
+        # 查找组映射
+        project_group_name = group_mapping.get(provider_group_name)
+        
+        if project_group_name:
+            # 找到映射，添加到结果列表（去重）
+            if project_group_name not in project_group_names:
+                project_group_names.append(project_group_name)
+        else:
+            # 未找到映射
+            if unmapped_group_strategy == GroupMappingStrategy.REJECT:
+                raise ValueError(f"Provider group '{provider_group_name}' is not mapped and unmapped_group_strategy is REJECT")
+            # IGNORE 策略：忽略未映射的组，不添加
+    
+    return project_group_names
+
+
 def add_user(session: Session,
              username: str,
              email: str,
@@ -119,6 +150,7 @@ def add_user(session: Session,
              created_at: None | datetime = None,
              is_active: bool = True,
              groups: None | list[str] = None,
+             oauth_groups: None | list[str] = None,
              commit: bool = False) -> DBUser:
     """
     Add a new user to the database.
@@ -132,15 +164,23 @@ def add_user(session: Session,
     :param created_at:
     :param is_active: bool, whether the user account is active (default: True)
     :param groups: list[str], optional list of group names to add the user to
+    :param oauth_groups: list[str], optional list of provider group names from OAuth provider.
+                        When provided with oauth_name_sub, these groups will be mapped to project groups
+                        using the provider's group_mapping configuration.
     :param commit: bool, whether to commit the session (default: False)
     :return: DBUser object that was created
     :raise ValueError: if user with the email already exists
     :raise KeyError: if oauth provider or group not found
+    :raise ValueError: if oauth_groups is provided without oauth_name_sub, or if unmapped group strategy is REJECT
     """
     # Check if email already exists
     existing_users_by_email = find_user_by_email(session, email)
     if existing_users_by_email:
         raise ValueError(f"User with email '{email}' already exists")
+
+    # Validate oauth_groups usage
+    if oauth_groups is not None and not oauth_name_sub:
+        raise ValueError("oauth_groups can only be used when oauth_name_sub is provided")
 
     kwarg = {
         'username': username,
@@ -155,15 +195,17 @@ def add_user(session: Session,
     if uuid:
         kwarg["uuid"] = uuid
 
+    provider = None
     if oauth_name_sub:
         provider_name, sub = oauth_name_sub
         providers = find_oauth_provider_by_name(session, provider_name)
         if not providers:
-            raise KeyError(f"OAuth provider '{oauth_name_sub}' not found")
+            raise KeyError(f"OAuth provider '{provider_name}' not found")
+        provider = providers[0]
         if not uuid:
             uuid = str(uuid_module.uuid4())
             kwarg["uuid"] = uuid
-        oauth_auth_kwargs = {"user_id": uuid, "provider_name": oauth_name_sub, "user_sub": sub}
+        oauth_auth_kwargs = {"user_id": uuid, "provider_name": provider_name, "user_sub": sub}
     if username_password:
         username, password = username_password
         if not uuid:
@@ -186,13 +228,28 @@ def add_user(session: Session,
         up_auth = PasswordAuth(user=new_user, **up_kwargs)
         session.add(up_auth)
 
-    # 将用户添加到指定的组
+    # 处理 OAuth 组映射
+    if oauth_groups and provider:
+        group_mapping = provider.group_mapping or {}
+        unmapped_strategy = provider.unmapped_group_strategy
+        mapped_group_names = apply_oauth_group_mapping(group_mapping, unmapped_strategy, oauth_groups)
+        
+        # 将映射后的组添加到用户
+        for group_name in mapped_group_names:
+            group_list = find_group_by_name(session, group_name)
+            if not group_list:
+                raise KeyError(f"Mapped group '{group_name}' not found")
+            if group_list[0] not in new_user.groups:
+                new_user.groups.append(group_list[0])
+
+    # 将用户添加到指定的组（直接指定的组，不经过映射）
     if groups:
         for group_name in groups:
             group_list = find_group_by_name(session, group_name)
             if not group_list:
                 raise KeyError(f"Group '{group_name}' not found")
-            new_user.groups.append(group_list[0])
+            if group_list[0] not in new_user.groups:
+                new_user.groups.append(group_list[0])
 
     if commit:
         session.commit()
@@ -219,6 +276,8 @@ def add_provider(session: Session,
                  token_url: str,
                  user_info_url: str,
                  scope: str,
+                 group_mapping: None | dict = None,
+                 unmapped_group_strategy: GroupMappingStrategy = GroupMappingStrategy.IGNORE,
                  commit: bool = False) -> OAuthProvider:
     """
     Add a new OAuth provider to the database.
@@ -231,6 +290,10 @@ def add_provider(session: Session,
     :param token_url: str, OAuth token endpoint URL
     :param user_info_url: str, URL to get user information from provider
     :param scope: str, OAuth scope permissions
+    :param group_mapping: dict, optional mapping from provider group names to project group names
+                         Format: {"provider_group_name": "project_group_name", ...}
+    :param unmapped_group_strategy: GroupMappingStrategy, strategy when provider group name is not mapped
+                                    (default: GroupMappingStrategy.IGNORE)
     :return: OAuthProvider object that was created
     :raise ValueError: if provider with the same name already exists
     """
@@ -247,7 +310,9 @@ def add_provider(session: Session,
         authorize_url=authorize_url,
         token_url=token_url,
         user_info_url=user_info_url,
-        scope=scope
+        scope=scope,
+        group_mapping=group_mapping,
+        unmapped_group_strategy=unmapped_group_strategy
     )
 
     # Add to session and commit
@@ -267,6 +332,8 @@ def update_provider(session: Session,
                     token_url: str = None,
                     user_info_url: str = None,
                     scope: str = None,
+                    group_mapping: None | dict = None,
+                    unmapped_group_strategy: None | GroupMappingStrategy = None,
                     commit: bool = False) -> OAuthProvider:
     """
     Update an existing OAuth provider in the database.
@@ -279,6 +346,10 @@ def update_provider(session: Session,
     :param token_url: str, optional new OAuth token endpoint URL
     :param user_info_url: str, optional new URL to get user information
     :param scope: str, optional new OAuth scope permissions
+    :param group_mapping: dict, optional mapping from provider group names to project group names
+                         Format: {"provider_group_name": "project_group_name", ...}
+                         Pass empty dict {} to clear the mapping
+    :param unmapped_group_strategy: GroupMappingStrategy, optional strategy when provider group name is not mapped
     :return: OAuthProvider object that was updated
     :raise KeyError: if provider with the given name doesn't exist
     """
@@ -301,6 +372,10 @@ def update_provider(session: Session,
         provider.user_info_url = user_info_url
     if scope is not None:
         provider.scope = scope
+    if group_mapping is not None:
+        provider.group_mapping = group_mapping
+    if unmapped_group_strategy is not None:
+        provider.unmapped_group_strategy = unmapped_group_strategy
 
     if commit:
         session.commit()

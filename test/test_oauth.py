@@ -27,6 +27,7 @@ setting = settings.AppSetting(
 if __name__ == "__main__":
     db.init_database(setting)
     with db.db_context() as session:
+        db.add_group(session, "admin")
         db.add_provider(session,
                         name="authelia",
                         client_id="ACT",
@@ -34,6 +35,7 @@ if __name__ == "__main__":
                         authorize_url="https://fyp-auth.hogwarts.ac/.well-known/openid-configuration",
                         token_url="https://fyp-act.hogwarts.ac/login-oauth/test",
                         user_info_url="https://exmple.com",
-                        scope="openid profile email")
+                        group_mapping={"admins": "admin"},
+                        scope="openid profile email groups")
 
     uvicorn.run(f"test_oauth:app", host="0.0.0.0", port=8000)

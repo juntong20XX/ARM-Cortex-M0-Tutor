@@ -7,6 +7,7 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 import uuid
 from typing import Optional
+from enum import Enum as PyEnum
 from sqlalchemy import (
     Column,
     Integer,
@@ -17,6 +18,8 @@ from sqlalchemy import (
     ForeignKey,
     UniqueConstraint,
     Table,
+    Enum,
+    JSON,
 )
 
 
@@ -24,6 +27,14 @@ class DBBase(DeclarativeBase):
     """
     The basic class for database.
     """
+
+
+class GroupMappingStrategy(str, PyEnum):
+    """
+    组映射策略枚举类，用于定义当供应商组名没有映射到项目组名时的处理策略。
+    """
+    IGNORE = "ignore"  # 无视，允许登录但不分配组
+    REJECT = "reject"  # 拒绝，不允许登录
 
 
 # 用户-组 多对多关联表
@@ -45,9 +56,11 @@ class DBGroup(DBBase):
     uuid: Mapped[str] = mapped_column(String(36), primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(String(500))  # 组描述
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime,
+                                                          default=lambda: datetime.datetime.now(datetime.timezone.utc))
     updated_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
+        DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc),
+        onupdate=lambda: datetime.datetime.now(datetime.timezone.utc)
     )
 
     # 多对多关系: 组包含的用户
@@ -81,6 +94,17 @@ class OAuthProvider(DBBase):
     token_url: Mapped[str] = mapped_column(String(500), nullable=False)
     user_info_url: Mapped[str] = mapped_column(String(500), nullable=False)
     scope: Mapped[str] = mapped_column(String(500), nullable=False)
+    
+    # 组映射：存储供应商组名到项目组名的对应关系
+    # 格式：{"供应商组名1": "项目组名1", "供应商组名2": "项目组名2", ...}
+    group_mapping: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, default=None)
+    
+    # 未映射组策略：当供应商组名没有在 group_mapping 中找到对应关系时的处理策略
+    unmapped_group_strategy: Mapped[GroupMappingStrategy] = mapped_column(
+        Enum(GroupMappingStrategy, native_enum=False, length=20),
+        nullable=False,
+        default=GroupMappingStrategy.IGNORE
+    )
 
 
 class OAuthAuthentication(DBBase):
@@ -116,9 +140,9 @@ class DBUser(DBBase):
     username: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     email: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
     updated_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
+        DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc), onupdate=lambda: datetime.datetime.now(datetime.timezone.utc)
     )
 
     # 一对一关系: 任选其一就好，由业务逻辑保证 XXX: 没有检查是否声明了定义方式
@@ -154,9 +178,9 @@ class DBProject(DBBase):
     # 外键使用与 users.uuid 相同的 UUID 字符串类型
     owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.uuid"))
 
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
     updated_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
+        DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc), onupdate=lambda: datetime.datetime.now(datetime.timezone.utc)
     )
 
     owner: Mapped["DBUser"] = relationship("DBUser", back_populates="projects")

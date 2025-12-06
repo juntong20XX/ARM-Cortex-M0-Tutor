@@ -1,16 +1,14 @@
 """
 test oauth
 """
-from ARM_Cortex_M0_Tutor.connector import debug
 from app.core import settings
-from app.database import init_database
+from app import database as db
 from app.apis.routes.session import router
 
 import uvicorn
 from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
-
 
 app = FastAPI()
 app.include_router(router)
@@ -26,7 +24,16 @@ setting = settings.AppSetting(
     secret_key="secret_key",
     login_action=settings.LoginAction.direct_oauth)
 
-
 if __name__ == "__main__":
-    init_database(setting)
+    db.init_database(setting)
+    with db.db_context() as session:
+        db.add_provider(session,
+                        name="authelia",
+                        client_id="ACT",
+                        client_secret="XXX",
+                        authorize_url="YYY",
+                        token_url="ZZZ",
+                        user_info_url="https://exmple.com",
+                        scope="openid profile email")
+
     uvicorn.run(f"test_oauth:app", host="0.0.0.0", port=8000)

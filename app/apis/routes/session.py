@@ -42,18 +42,20 @@ async def login(request: Request):
     if request.session.get('user'):
         # 无需登录, 重定向到根目录
         return RedirectResponse(request.url_for('/'))
-    s = settings.load_config()
-    if not _oauth_initialized:
-        _update_oauth_obj()
+    s = settings.get_app_setting()
     if s.login_action == settings.LoginAction.oauth:
+        _update_oauth_obj()
         raise NotImplementedError
     elif s.login_action == settings.LoginAction.oauth_pw:
+        _update_oauth_obj()
         raise NotImplementedError
     elif s.login_action == settings.LoginAction.direct_oauth:
-        return RedirectResponse(request.url_for('/login/direct_oauth'))
+        _update_oauth_obj()
+        return RedirectResponse(request.url_for('login_direct_oauth'))
     elif s.login_action == settings.LoginAction.password:
         raise NotImplementedError
     elif s.login_action == settings.LoginAction.username_domain:
+        _update_oauth_obj()
         raise NotImplementedError
     else:
         raise KeyError("Unintended settings s.login_action, get", s.login_action)
@@ -66,10 +68,10 @@ async def login_direct_oauth(request: Request):
     :param request:
     :return:
     """
-    redirect_uri = request.url_for('/login-oauth')
     with db.db_context() as session:
         provider_name = session.query(db.models.OAuthProvider).first().name
     provider = getattr(oauth, provider_name)
+    redirect_uri = request.url_for('login_oauth', provider_name=provider_name)
     return await provider.authorize_redirect(request, redirect_uri)
 
 

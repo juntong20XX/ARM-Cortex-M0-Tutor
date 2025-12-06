@@ -9,6 +9,9 @@ from enum import Enum
 from dataclasses import dataclass
 
 
+_setting = None
+
+
 class LoginAction(str, Enum):
     """
     Login action chooses.
@@ -31,13 +34,17 @@ class AppSetting:
     secret_key: str  # for gen session token
     login_action: LoginAction = LoginAction.oauth_pw
 
+    def __post_init__(self):
+        global _setting
+        _setting = self
+
 
 def _load_config_from_file(path="./config.toml") -> dict:
     try:
-        with open(path, "b") as fp:
+        with open(path, "rb") as fp:
             return tomllib.load(fp)
     except (FileNotFoundError, IsADirectoryError, PermissionError) as err:
-        logger.error("Error occurred when load config file", path, err)
+        logger.warn("Error occurred when load config file", path, err)
         return {}
 
 
@@ -61,3 +68,14 @@ def load_config() -> AppSetting:
     ret.update(_load_config_from_file())
     ret.update(_load_config_from_env())
     return AppSetting(**ret)
+
+def get_app_setting() -> AppSetting:
+    """
+    获取全局 AppSetting 实例
+    :return: AppSetting 实例
+    """
+    global _setting
+    if _setting is not None:
+        return _setting
+    else:
+        return load_config()

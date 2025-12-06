@@ -25,3 +25,10 @@ def error_handle_warning(retry_state):
 
     """
     # TODO
+    try:
+        result = retry_state.outcome.result()
+    except Exception as err:
+        logger.warning("A warning: an issue occurred.", str(err), err.args, f"At {retry_state.fn}",
+                       "with", retry_state.args, retry_state.kwargs)
+    else:
+        logger.warning("A warning: an unexpected value attached", result)

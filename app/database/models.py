@@ -15,6 +15,7 @@ from sqlalchemy import (
     DateTime,
     Text,
     ForeignKey,
+    UniqueConstraint,
 )
 
 
@@ -22,6 +23,56 @@ class DBBase(DeclarativeBase):
     """
     The basic class for database.
     """
+
+
+class PasswordAuth(DBBase):
+    """
+    用户名密码认证方式
+    """
+    __tablename__ = "password_authentication"
+
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.uuid"), primary_key=True, unique=True)
+    username: Mapped[str] = mapped_column(String(50), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    user: Mapped["DBUser"] = relationship("DBUser", back_populates="password_auth")
+
+
+class OAuthProvider(DBBase):
+    """
+    OAuth provider configuration.
+    """
+    __tablename__ = "oauth_providers"
+    name: Mapped[str] = mapped_column(String(50), primary_key=True, unique=True, index=True, nullable=False)
+    client_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    client_secret: Mapped[str] = mapped_column(String(255), nullable=False)
+    authorize_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    token_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    user_info_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    scope: Mapped[str] = mapped_column(String(500), nullable=False)
+
+
+class OAuthAuthentication(DBBase):
+    """
+    OAuth 认证方式，存储第三方提供商及身份标识
+    """
+    __tablename__ = "oauth_authentication"
+
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.uuid"), primary_key=True, unique=True)
+
+    # 使用外键关联到 OAuthProvider 模型
+    provider_id: Mapped[str] = mapped_column(Integer, ForeignKey("oauth_providers.name"), nullable=False)
+
+    open_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[Optional[str]] = mapped_column(String(100))
+
+    user: Mapped["DBUser"] = relationship("DBUser", back_populates="oauth_auth")
+
+    # 建立与 OAuthProvider 的关系
+    provider: Mapped["OAuthProvider"] = relationship()
+
+    # 确保每个提供商的用户 ID 是唯一的
+    __table_args__ = (UniqueConstraint('provider_id', 'open_id', name='_provider_openid_uc'),)
 
 
 class DBUser(DBBase):
@@ -34,11 +85,18 @@ class DBUser(DBBase):
     uuid: Mapped[str] = mapped_column(String(36), primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
     username: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     email: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
-    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
+    )
+
+     # 一对一关系: 任选其一就好，由业务逻辑保证 XXX: 没有检查是否声明了定义方式
+    password_auth: Mapped[Optional["PasswordAuth"]] = relationship(
+        "PasswordAuth", back_populates="user", uselist=False
+    )
+    oauth_auth: Mapped[Optional["OAuthAuthentication"]] = relationship(
+        "OAuthAuthentication", back_populates="user", uselist=False
     )
 
     # 关系的定义

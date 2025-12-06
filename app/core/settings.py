@@ -1,17 +1,35 @@
 """
 
 """
-from .defender import retry, stop_after_attempt, wait_fixed, logger
+from app.core.defender import logger
 
 import os
 import tomllib
-from pathlib import Path
+from enum import Enum
 from dataclasses import dataclass
+
+
+class LoginAction(str, Enum):
+    """
+    Login action chooses.
+    :arg username_domain: User input username, automatically determines the login method and OAuth domain.
+    :arg oauth: User can choose OAuth Provider.
+    :arg password: username and password login
+    :arg oauth_pw: OAuth list and password login
+    :arg direct_oauth: Redirect to OAuth page directly, only works when just 1 OAuth Provider.
+    """
+    username_domain = "username_domain"
+    oauth = "oauth"
+    password = "password"
+    oauth_pw = "oauth_pw"
+    direct_oauth = "direct_oauth"
 
 
 @dataclass(frozen=True)
 class AppSetting:
     database_url: str
+    secret_key: str  # for gen session token
+    login_action: LoginAction = LoginAction.oauth_pw
 
 
 def _load_config_from_file(path="./config.toml") -> dict:

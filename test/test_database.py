@@ -2,11 +2,11 @@
 Unit tests for database models
 """
 from app.database import enter
-from app.settings import AppSetting
-from app.database import (DBBase, DBUser, DBProject,
-                          init_database, db_context,
+from app.core.settings import AppSetting
+from app.database import (init_database, db_context,
                           find_user_by_username, find_user_by_email_host,
                           find_project_by_owner_name, find_project_by_name)
+from app.database.models import DBBase, DBUser, DBProject
 
 import unittest
 import datetime
@@ -21,7 +21,7 @@ class TestDatabaseModels(unittest.TestCase):
         setup SessionLocal
         """
         # 使用内存数据库进行测试
-        init_database(AppSetting(database_url="sqlite:///:memory:"))
+        init_database(AppSetting(database_url="sqlite:///:memory:", secret_key="secret_key"))
 
     def setUp(self):
         """
@@ -39,8 +39,7 @@ class TestDatabaseModels(unittest.TestCase):
         with db_context() as session:
             user = DBUser(
                 username="testuser",
-                email="test@example.com",
-                hashed_password="hashed_pw_123"
+                email="test@example.com"
             )
             session.add(user)
 
@@ -62,8 +61,8 @@ class TestDatabaseModels(unittest.TestCase):
         """测试 UUID 自动生成"""
 
         with db_context() as session:
-            user1 = DBUser(username="user1", email="user1@test.com", hashed_password="pw1")
-            user2 = DBUser(username="user2", email="user2@test.com", hashed_password="pw2")
+            user1 = DBUser(username="user1", email="user1@test.com")
+            user2 = DBUser(username="user2", email="user2@test.com")
             session.add_all([user1, user2])
 
         with db_context() as session:
@@ -74,26 +73,26 @@ class TestDatabaseModels(unittest.TestCase):
     def test_user_unique_constraints(self):
         """测试用户唯一性约束"""
         with db_context() as session:
-            user1 = DBUser(username="sameuser", email="email1@test.com", hashed_password="pw")
+            user1 = DBUser(username="sameuser", email="email1@test.com")
             session.add(user1)
 
         with self.assertRaises(Exception):  # 会抛出 IntegrityError
             with db_context() as session:
                 # 尝试创建相同 username 的用户
-                user2 = DBUser(username="sameuser", email="email2@test.com", hashed_password="pw")
+                user2 = DBUser(username="sameuser", email="email2@test.com")
                 session.add(user2)
 
         # 尝试创建相同 email 的用户
         with self.assertRaises(Exception):
             with db_context() as session:
-                user3 = DBUser(username="diffuser", email="email1@test.com", hashed_password="pw")
+                user3 = DBUser(username="diffuser", email="email1@test.com")
                 session.add(user3)
 
     def test_user_nullable_fields(self):
         """测试用户必填字段"""
         # 缺少 username 应该失败
         with self.assertRaises(Exception):
-            user = DBUser(email="test@test.com", hashed_password="pw")
+            user = DBUser(email="test@test.com")
             with db_context() as session:
                 session.add(user)
 
@@ -103,7 +102,7 @@ class TestDatabaseModels(unittest.TestCase):
         """测试创建项目"""
         # 先创建用户
         with db_context() as session:
-            user = DBUser(username="owner", email="owner@test.com", hashed_password="pw")
+            user = DBUser(username="owner", email="owner@test.com")
             session.add(user)
 
         # 创建项目
@@ -128,7 +127,7 @@ class TestDatabaseModels(unittest.TestCase):
 
     def test_project_optional_description(self):
         """测试项目描述字段可选"""
-        user = DBUser(username="owner", email="owner@test.com", hashed_password="pw")
+        user = DBUser(username="owner", email="owner@test.com")
         with db_context() as session:
             session.add(user)
 
@@ -153,7 +152,7 @@ class TestDatabaseModels(unittest.TestCase):
         """测试用户和项目的关系"""
         with db_context() as session:
             # 创建用户
-            user = DBUser(username="owner", email="owner@test.com", hashed_password="pw")
+            user = DBUser(username="owner", email="owner@test.com")
             session.add(user)
             session.commit()
 
@@ -179,7 +178,7 @@ class TestDatabaseModels(unittest.TestCase):
         """测试从项目访问所有者"""
         # 先 commit user，再创建 project
         with db_context() as session:
-            user = DBUser(username="owner", email="owner@test.com", hashed_password="hashed_password")
+            user = DBUser(username="owner", email="owner@test.com")
             session.add(user)
             # 先提交用户
             session.commit()
@@ -197,7 +196,7 @@ class TestDatabaseModels(unittest.TestCase):
     def test_cascade_delete(self):
         """测试级联删除：删除用户时项目也被删除"""
         with db_context() as session:
-            user = DBUser(username="owner", email="owner@test.com", hashed_password="hashed_password")
+            user = DBUser(username="owner", email="owner@test.com")
             session.add(user)
             session.commit()
             session.refresh(user)

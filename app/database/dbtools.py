@@ -1,4 +1,4 @@
-from .models import DBUser, DBProject
+from .models import DBUser, DBProject, OAuthProvider
 from .enter import db_context
 
 from sqlalchemy import create_engine, select
@@ -62,3 +62,13 @@ def find_user_by_username(session: Session, username: str) -> list[DBUser]:
     :return:
     """
     return session.query(DBUser).filter_by(username=username).all()
+
+
+def find_oauth_provider_by_name(session: Session, provider_name: str) -> list[OAuthProvider]:
+    """
+
+    :param session:
+    :param provider_name:
+    :return:
+    """
+    return session.query(OAuthProvider).filter_by(name=provider_name).all()

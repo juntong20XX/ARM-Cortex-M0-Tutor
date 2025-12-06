@@ -1,7 +1,7 @@
 """
 read setting and setup database session
 """
-from ..settings import load_config, AppSetting
+from app.core.settings import load_config, AppSetting
 from . import models
 
 from sqlalchemy import create_engine, event

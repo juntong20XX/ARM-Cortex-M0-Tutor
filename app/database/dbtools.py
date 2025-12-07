@@ -5,7 +5,7 @@ from .models import DBUser, DBProject, OAuthProvider, PasswordAuth, OAuthAuthent
 from ..core.security import get_password_hash
 
 from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session, sessionmaker, DeclarativeBase
+from sqlalchemy.orm import Session
 
 import typing
 import uuid as uuid_module

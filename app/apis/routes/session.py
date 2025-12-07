@@ -3,12 +3,12 @@
 """
 from ..models import LoginSource
 from ... import database as db
+from ... import services
 from ...core import settings
 from .. import models
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi import APIRouter, Request
+from fastapi.responses import RedirectResponse
 from authlib.integrations.starlette_client import OAuth
 
 import datetime
@@ -98,18 +98,9 @@ async def login_oauth(request: Request, provider_name: str):
         with db.db_context() as session:
             r = db.find_user_by_provider_and_sub(session, provider_name, user_info["sub"])
             if not r:
-                db.add_user(session,
-                            username=user_info["name"],
-                            email=user_info["email"],
-                            oauth_name_sub=(provider_name, user_info["sub"]),
-                            oauth_groups=user_info["groups"],
-                            )
-        with db.db_context() as session:
-            r = db.find_user_by_provider_and_sub(session, provider_name, user_info["sub"])
-            if len(r) == 1:
-                user = r[0]
-            else:
-                raise KeyError("Unintended settings s.login_action, get", provider_name)
+                services.add_user_from_oauth_info(session, provider_name, user_info, commit=True)
+
+            user = db.find_user_by_provider_and_sub(session, provider_name, user_info["sub"])[0]
 
             # 解析用户信息 (Authlib 会自动使用 ID Token 或调用 userinfo 端点), 将用户信息存入 Session
             request.session['user'] = token.get('userinfo')

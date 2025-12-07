@@ -13,7 +13,16 @@ from .dbtools import (find_project_by_name, find_project_by_owner_name, find_pro
                       find_group_by_name, find_group_by_uuid, find_all_groups,
                       add_group, update_group, delete_group,
                       add_user_to_group, remove_user_from_group,
-                      get_user_groups, get_group_users, find_users_by_group)
+                      get_user_groups, get_group_users, find_users_by_group,
+                      # 组可管理用户相关函数
+                      add_managed_user_to_group, remove_managed_user_from_group,
+                      get_group_managed_users,
+                      # 组可管理项目相关函数
+                      add_managed_project_to_group, remove_managed_project_from_group,
+                      get_group_managed_projects,
+                      # 组可管理组相关函数
+                      add_managed_group_to_group, remove_managed_group_from_group,
+                      get_group_managed_groups)
 
 from . import models
 
@@ -31,4 +40,13 @@ __all__ = ["models",
            "find_group_by_name", "find_group_by_uuid", "find_all_groups",
            "add_group", "update_group", "delete_group",
            "add_user_to_group", "remove_user_from_group",
-           "get_user_groups", "get_group_users", "find_users_by_group"]
+           "get_user_groups", "get_group_users", "find_users_by_group",
+           # 组可管理用户相关
+           "add_managed_user_to_group", "remove_managed_user_from_group",
+           "get_group_managed_users",
+           # 组可管理项目相关
+           "add_managed_project_to_group", "remove_managed_project_from_group",
+           "get_group_managed_projects",
+           # 组可管理组相关
+           "add_managed_group_to_group", "remove_managed_group_from_group",
+           "get_group_managed_groups"]

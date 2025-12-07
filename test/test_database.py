@@ -10,11 +10,16 @@ from app.database import (init_database, db_context,
                           add_group, find_group_by_name, find_group_by_uuid,
                           find_all_groups, update_group, delete_group,
                           add_user_to_group, remove_user_from_group,
-                          get_user_groups, get_group_users, find_users_by_group)
-from app.database.models import DBBase, DBUser, DBProject, DBGroup
+                          get_user_groups, get_group_users, find_users_by_group,
+                          add_managed_user_to_group, remove_managed_user_from_group, get_group_managed_users,
+                          add_managed_project_to_group, remove_managed_project_from_group, get_group_managed_projects,
+                          add_managed_group_to_group, remove_managed_group_from_group, get_group_managed_groups
+                          )
+from app.database.models import DBBase, DBUser, DBProject
 
 import unittest
 import datetime
+from uuid import uuid4
 
 
 class TestDatabaseModels(unittest.TestCase):
@@ -232,12 +237,225 @@ class TestDatabaseModels(unittest.TestCase):
         with self.assertRaises(IntegrityError):
             with db_context() as session:
                 # 尝试创建项目但指定不存在的 owner_id
-                project = DBProject(
-                    name="Orphan Project",
-                    content="Content",
-                    owner_id="non-existent-uuid"
-                )
+                project = DBProject(name="Proj", content="Content", owner_id="non-existent-uuid")
                 session.add(project)
+
+
+class TestGroupManagement(unittest.TestCase):
+    """Test cases for group management features"""
+
+    @classmethod
+    def setUpClass(cls):
+        """setup SessionLocal"""
+        init_database(AppSetting(database_url="sqlite:///:memory:", secret_key="secret_key"))
+
+    def setUp(self):
+        """create a session"""
+        DBBase.metadata.drop_all(enter._engine)
+        DBBase.metadata.create_all(enter._engine)
+
+        # 创建基本数据
+        with db_context() as session:
+            # 创建用户
+            add_user(session, username="user1", email="user1@test.com")
+            add_user(session, username="user2", email="user2@test.com")
+        with db_context() as session:
+            # 创建项目
+            user1 = find_user_by_username(session, "user1")[0]
+            user2 = find_user_by_username(session, "user2")[0]
+            self.user1_uuid = user1.uuid
+            self.user2_uuid = user2.uuid
+            self.project1_uuid = str(uuid4())
+            self.project2_uuid = str(uuid4())
+            project1 = DBProject(name="Project1", content="Content1", owner_id=user1.uuid, uuid=self.project1_uuid)
+            project2 = DBProject(name="Project2", content="Content2", owner_id=user2.uuid, uuid=self.project2_uuid)
+            session.add_all([project1, project2])
+        with db_context() as session:
+            # 创建组
+            add_group(session, name="admins", description="Admin Group")
+            add_group(session, name="developers", description="Developers Group")
+            add_group(session, name="users", description="Users Group")
+
+
+    # ========== Group Managed Users Tests ==========
+
+    def test_add_managed_user_to_group(self):
+        """测试向组中添加可管理的用户"""
+        with db_context() as session:
+            add_managed_user_to_group(session, "admins", self.user1_uuid)
+
+        with db_context() as session:
+            managed_users = get_group_managed_users(session, "admins")
+            self.assertEqual(len(managed_users), 1)
+            self.assertEqual(managed_users[0].username, "user1")
+
+    def test_add_managed_user_to_nonexistent_group_raises_error(self):
+        """测试向不存在的组添加可管理用户会引发错误"""
+        with self.assertRaises(KeyError):
+            with db_context() as session:
+                add_managed_user_to_group(session, "nonexistent_group", self.user1_uuid)
+
+    def test_add_nonexistent_user_to_group_raises_error(self):
+        """测试向组中添加不存在的用户会引发错误"""
+        with self.assertRaises(KeyError):
+            with db_context() as session:
+                add_managed_user_to_group(session, "admins", "nonexistent-uuid")
+
+    def test_add_managed_user_twice_raises_error(self):
+        """测试重复添加可管理用户会引发错误"""
+        with db_context() as session:
+            add_managed_user_to_group(session, "admins", self.user1_uuid)
+
+        with self.assertRaises(ValueError):
+            with db_context() as session:
+                add_managed_user_to_group(session, "admins", self.user1_uuid)
+
+    def test_remove_managed_user_from_group(self):
+        """测试从组中移除可管理的用户"""
+        with db_context() as session:
+            add_managed_user_to_group(session, "admins", self.user1_uuid)
+
+        with db_context() as session:
+            remove_managed_user_from_group(session, "admins", self.user1_uuid)
+
+        with db_context() as session:
+            managed_users = get_group_managed_users(session, "admins")
+            self.assertEqual(len(managed_users), 0)
+
+    def test_remove_managed_user_from_nonexistent_group_raises_error(self):
+        """测试从不存在的组移除可管理用户会引发错误"""
+        with self.assertRaises(KeyError):
+            with db_context() as session:
+                remove_managed_user_from_group(session, "nonexistent_group", self.user1_uuid)
+
+    def test_remove_nonexistent_managed_user_raises_error(self):
+        """测试移除不被管理的的用户会引发错误"""
+        with self.assertRaises(ValueError):
+            with db_context() as session:
+                remove_managed_user_from_group(session, "admins", self.user1_uuid)
+
+    def test_get_group_managed_users(self):
+        """测试获取组可管理的所有用户"""
+        with db_context() as session:
+            add_managed_user_to_group(session, "admins", self.user1_uuid)
+            add_managed_user_to_group(session, "admins", self.user2_uuid)
+
+        with db_context() as session:
+            managed_users = get_group_managed_users(session, "admins")
+            self.assertEqual(len(managed_users), 2)
+            usernames = [u.username for u in managed_users]
+            self.assertIn("user1", usernames)
+            self.assertIn("user2", usernames)
+
+    # ========== Group Managed Projects Tests ==========
+
+    def test_add_managed_project_to_group(self):
+        """测试向组中添加可管理的项目"""
+        with db_context() as session:
+            add_managed_project_to_group(session, "admins", self.project1_uuid)
+
+        with db_context() as session:
+            managed_projects = get_group_managed_projects(session, "admins")
+            self.assertEqual(len(managed_projects), 1)
+            self.assertEqual(managed_projects[0].name, "Project1")
+
+    def test_add_managed_project_to_nonexistent_group_raises_error(self):
+        """测试向不存在的组添加可管理项目会引发错误"""
+        with self.assertRaises(KeyError):
+            with db_context() as session:
+                add_managed_project_to_group(session, "nonexistent_group", self.project1_uuid)
+
+    def test_add_nonexistent_project_to_group_raises_error(self):
+        """测试向组中添加不存在的项目会引发错误"""
+        with self.assertRaises(KeyError):
+            with db_context() as session:
+                add_managed_project_to_group(session, "admins", "nonexistent-uuid")
+
+    def test_add_managed_project_twice_raises_error(self):
+        """测试重复添加可管理项目会引发错误"""
+        with db_context() as session:
+            add_managed_project_to_group(session, "admins", self.project1_uuid)
+
+        with self.assertRaises(ValueError):
+            with db_context() as session:
+                add_managed_project_to_group(session, "admins", self.project1_uuid)
+
+    def test_remove_managed_project_from_group(self):
+        """测试从组中移除可管理的项目"""
+        with db_context() as session:
+            add_managed_project_to_group(session, "admins", self.project1_uuid)
+
+        with db_context() as session:
+            remove_managed_project_from_group(session, "admins", self.project1_uuid)
+
+        with db_context() as session:
+            managed_projects = get_group_managed_projects(session, "admins")
+            self.assertEqual(len(managed_projects), 0)
+
+    def test_get_group_managed_projects(self):
+        """测试获取组可管理的所有项目"""
+        with db_context() as session:
+            add_managed_project_to_group(session, "admins", self.project1_uuid)
+            add_managed_project_to_group(session, "admins", self.project2_uuid)
+
+        with db_context() as session:
+            managed_projects = get_group_managed_projects(session, "admins")
+            self.assertEqual(len(managed_projects), 2)
+            project_names = [p.name for p in managed_projects]
+            self.assertIn("Project1", project_names)
+            self.assertIn("Project2", project_names)
+
+    # ========== Group Managed Groups Tests ==========
+
+    def test_add_managed_group_to_group(self):
+        """测试向组中添加可管理的组"""
+        with db_context() as session:
+            add_managed_group_to_group(session, "admins", "developers")
+
+        with db_context() as session:
+            managed_groups = get_group_managed_groups(session, "admins")
+            self.assertEqual(len(managed_groups), 1)
+            self.assertEqual(managed_groups[0].name, "developers")
+
+    def test_add_managed_group_to_itself_raises_error(self):
+        """测试一个组不能管理自己"""
+        with self.assertRaises(ValueError):
+            with db_context() as session:
+                add_managed_group_to_group(session, "admins", "admins")
+
+    def test_add_managed_group_circular_dependency_raises_error(self):
+        """测试添加可管理组时循环依赖会引发错误"""
+        with db_context() as session:
+            add_managed_group_to_group(session, "admins", "developers")
+
+        with self.assertRaises(ValueError):
+            with db_context() as session:
+                add_managed_group_to_group(session, "developers", "admins")
+
+    def test_remove_managed_group_from_group(self):
+        """测试从组中移除可管理的组"""
+        with db_context() as session:
+            add_managed_group_to_group(session, "admins", "developers")
+
+        with db_context() as session:
+            remove_managed_group_from_group(session, "admins", "developers")
+
+        with db_context() as session:
+            managed_groups = get_group_managed_groups(session, "admins")
+            self.assertEqual(len(managed_groups), 0)
+
+    def test_get_group_managed_groups(self):
+        """测试获取组可管理的所有组"""
+        with db_context() as session:
+            add_managed_group_to_group(session, "admins", "developers")
+            add_managed_group_to_group(session, "admins", "users")
+
+        with db_context() as session:
+            managed_groups = get_group_managed_groups(session, "admins")
+            self.assertEqual(len(managed_groups), 2)
+            group_names = [g.name for g in managed_groups]
+            self.assertIn("developers", group_names)
+            self.assertIn("users", group_names)
 
 
 class TestGroupModels(unittest.TestCase):

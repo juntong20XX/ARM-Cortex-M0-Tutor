@@ -45,11 +45,36 @@ user_group_association = Table(
     Column("group_id", String(36), ForeignKey("groups.uuid"), primary_key=True),
 )
 
+# 组-可管理用户 多对多关联表
+group_managed_users_association = Table(
+    "group_managed_users_association",
+    DBBase.metadata,
+    Column("group_id", String(36), ForeignKey("groups.uuid"), primary_key=True),
+    Column("user_id", String(36), ForeignKey("users.uuid"), primary_key=True),
+)
+
+# 组-可管理项目 多对多关联表
+group_managed_projects_association = Table(
+    "group_managed_projects_association",
+    DBBase.metadata,
+    Column("group_id", String(36), ForeignKey("groups.uuid"), primary_key=True),
+    Column("project_id", String(36), ForeignKey("projects.uuid"), primary_key=True),
+)
+
+# 组-可管理组 多对多关联表（自引用）
+group_managed_groups_association = Table(
+    "group_managed_groups_association",
+    DBBase.metadata,
+    Column("manager_group_id", String(36), ForeignKey("groups.uuid"), primary_key=True),
+    Column("managed_group_id", String(36), ForeignKey("groups.uuid"), primary_key=True),
+)
+
 
 class DBGroup(DBBase):
     """
     用户组模型，用于权限管理。
     每个用户可以属于多个组，每个组可以包含多个用户。
+    组可以管理用户、项目和其它组。
     """
     __tablename__ = "groups"
 
@@ -63,9 +88,34 @@ class DBGroup(DBBase):
         onupdate=lambda: datetime.datetime.now(datetime.timezone.utc)
     )
 
+    # 未匹配处理策略：当组名没有映射到项目组名时的处理策略
+    unmapped_group_strategy: Mapped[GroupMappingStrategy] = mapped_column(
+        Enum(GroupMappingStrategy, native_enum=False, length=20),
+        nullable=False,
+        default=GroupMappingStrategy.REJECT
+    )
+
     # 多对多关系: 组包含的用户
     users: Mapped[list["DBUser"]] = relationship(
         "DBUser", secondary=user_group_association, back_populates="groups"
+    )
+
+    # 多对多关系: 组可管理的用户
+    managed_users: Mapped[list["DBUser"]] = relationship(
+        "DBUser", secondary=group_managed_users_association
+    )
+
+    # 多对多关系: 组可管理的项目
+    managed_projects: Mapped[list["DBProject"]] = relationship(
+        "DBProject", secondary=group_managed_projects_association
+    )
+
+    # 多对多关系: 组可管理的其他组（自引用）
+    managed_groups: Mapped[list["DBGroup"]] = relationship(
+        "DBGroup",
+        secondary=group_managed_groups_association,
+        primaryjoin="DBGroup.uuid == group_managed_groups_association.c.manager_group_id",
+        secondaryjoin="DBGroup.uuid == group_managed_groups_association.c.managed_group_id"
     )
 
 
@@ -176,7 +226,7 @@ class DBProject(DBBase):
     description: Mapped[Optional[str]] = mapped_column(String(500))  # 可选字段
 
     # 外键使用与 users.uuid 相同的 UUID 字符串类型
-    owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.uuid"))
+    owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.uuid"), nullable=False)
 
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
     updated_at: Mapped[datetime.datetime] = mapped_column(

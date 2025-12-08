@@ -1,0 +1,18 @@
+[http.routers.nginx-router]
+  rule = "PathPrefix(`/`)"
+  entryPoints = ["web"]
+  service = "nginx-service"
+
+[http.services.nginx-service.loadBalancer]
+  [[http.services.nginx-service.loadBalancer.servers]]
+    url = "http://nginx"
+
+[http.routers.app-router]
+  rule = "PathPrefix(`/api`)"
+  entryPoints = ["web"]
+  service = "app-service"
+
+[http.services.app-service.loadBalancer]
+  [[http.services.app-service.loadBalancer.servers]]
+    url = "http://192.168.1.190:8000"
+

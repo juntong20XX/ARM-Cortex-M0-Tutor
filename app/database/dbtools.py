@@ -48,6 +48,148 @@ def find_project_by_owner_id(session: Session, owner_id: str) -> list[DBProject]
     return session.query(DBProject).filter_by(owner_id=owner_id).all()
 
 
+def find_project_by_uuid(session: Session, project_uuid: str) -> list[DBProject]:
+    """
+    根据 UUID 查找项目。
+    :param session: a db Session
+    :param project_uuid: str, 项目的 UUID
+    :return: 匹配的项目列表
+    """
+    return session.query(DBProject).filter_by(uuid=project_uuid).all()
+
+
+def add_project(session: Session,
+                name: str,
+                content: str,
+                owner_id: str,
+                description: str = None,
+                source: str = "",
+                code: list = None,
+                executed: list = None,
+                uuid: str = None,
+                commit: bool = False) -> DBProject:
+    """
+    添加新项目到数据库。
+    
+    :param session: a db Session
+    :param name: str, 项目名称
+    :param content: str, 项目内容
+    :param owner_id: str, 项目所有者的 UUID
+    :param description: str, 可选的项目描述
+    :param source: str, 源代码 (default: "")
+    :param code: list, 序列化后的 list[ASMLine] (default: [])
+    :param executed: list, 单步执行数据 (default: [])
+    :param uuid: str, 可选的 UUID，不提供则自动生成
+    :param commit: bool, 是否提交会话 (default: False)
+    :return: 创建的 DBProject 对象
+    :raise KeyError: 如果所有者不存在
+    """
+    # 检查所有者是否存在
+    owner = session.query(DBUser).filter_by(uuid=owner_id).first()
+    if not owner:
+        raise KeyError(f"User with UUID '{owner_id}' not found")
+
+    kwargs = {
+        'name': name,
+        'content': content,
+        'owner_id': owner_id,
+        'source': source,
+        'code': code if code is not None else [],
+        'executed': executed if executed is not None else [],
+        'updated_at': datetime.now(UTC),
+    }
+    
+    if description is not None:
+        kwargs['description'] = description
+    
+    if uuid is not None:
+        kwargs['uuid'] = uuid
+
+    new_project = DBProject(**kwargs)
+    session.add(new_project)
+    
+    if commit:
+        session.commit()
+        session.refresh(new_project)
+
+    return new_project
+
+
+def update_project(session: Session,
+                   project_uuid: str,
+                   name: str = None,
+                   content: str = None,
+                   description: str = None,
+                   source: str = None,
+                   code: list = None,
+                   executed: list = None,
+                   commit: bool = False) -> DBProject:
+    """
+    更新现有项目信息。
+    
+    :param session: a db Session
+    :param project_uuid: str, 要更新的项目 UUID
+    :param name: str, 可选的新项目名称
+    :param content: str, 可选的新项目内容
+    :param description: str, 可选的新项目描述
+    :param source: str, 可选的新源代码
+    :param code: list, 可选的新序列化后的 list[ASMLine]
+    :param executed: list, 可选的新单步执行数据
+    :param commit: bool, 是否提交会话 (default: False)
+    :return: 更新后的 DBProject 对象
+    :raise KeyError: 如果项目不存在
+    """
+    projects = find_project_by_uuid(session, project_uuid)
+    if not projects:
+        raise KeyError(f"Project with UUID '{project_uuid}' not found")
+
+    project = projects[0]
+
+    if name is not None:
+        project.name = name
+    if content is not None:
+        project.content = content
+    if description is not None:
+        project.description = description
+    if source is not None:
+        project.source = source
+    if code is not None:
+        project.code = code
+    if executed is not None:
+        project.executed = executed
+
+    project.updated_at = datetime.now(UTC)
+
+    if commit:
+        session.commit()
+        session.refresh(project)
+
+    return project
+
+
+def delete_project(session: Session, project_uuid: str, commit: bool = False) -> bool:
+    """
+    删除项目。
+    
+    :param session: a db Session
+    :param project_uuid: str, 要删除的项目 UUID
+    :param commit: bool, 是否提交会话 (default: False)
+    :return: bool, 删除成功返回 True
+    :raise KeyError: 如果项目不存在
+    """
+    projects = find_project_by_uuid(session, project_uuid)
+    if not projects:
+        raise KeyError(f"Project with UUID '{project_uuid}' not found")
+
+    project = projects[0]
+    session.delete(project)
+    
+    if commit:
+        session.commit()
+
+    return True
+
+
 def find_user_by_email_host(session: Session, email_host: str) -> list[DBUser]:
     """
     Found user sequence with the host of email, like `@outlook.com` or `liv.ac.uk`.

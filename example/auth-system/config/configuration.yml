@@ -1,0 +1,114 @@
+server:
+  # [修复警告] server.host/port 已废弃，改用 address
+  address: "tcp://0.0.0.0:9091"
+
+identity_validation:
+  reset_password:
+    # [修复警告] jwt_secret 移动到了这里
+    # 记得替换为随机长字符串
+    jwt_secret: "generate_a_secure_random_string_here_for_jwt"
+identity_providers:
+  oidc:
+    jwks:
+      - key_id: 'ACT'
+        algorithm: 'RS256'
+        use: 'sig'
+        key: |
+          -----BEGIN PRIVATE KEY-----
+          MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDJVU+XCfQ+OlUO
+          xgHCAp3gNpEHS3vHojGjhN1Ny2UQCjxi6Go4gSGF7o/pR+3FxBowaZPRckjXgMCF
+          0sqsOeKnarIJWuqgcyiFbU7DdlKS4jWOUpBOOVQ6knWP2smlkBYYfiYGcXpCYPEE
+          o+u+n1ZPIrfyZKSq5KaCS3O+BXu1SFbjL22rvoGclZfiMLcK9iIVKoQnxCh5DpNe
+          9w1J+I97g9kFkf22I/1vqYjHf3uvmee9W1lTjNDGLER+g7JB9fp86068FFoa96q4
+          fYzv3x79Rn+yY58FYwQfHgYTlRn+x8JIFoutZH76FAHbRawqAP2OFghk5dpbQqws
+          mz8tr0WDAgMBAAECggEADWQeOhaQZz8r/yKOZWAVLh+S/+A2aG3STWT97zmzDCES
+          KSX6Qq3cE/NtIQAGwZusfkHXchve2m6W34/IqTHkcGw5UUP5zRg7vrwpe/i3v0tK
+          cp/tNza68nZhWWMc/GUcAx8I2m7byeR2w28/s9sXO4Y8o+OrzC4PISVxmlb1Bnad
+          8+tu3D/t2P4N8xudljYnP2GOwP+WPU1VycFoQ6p8WEw/wzUdYnQ4ppIF0xVlCUsy
+          5er5lGhv/JtRk2/QfW5nAAOHgUU2nRxC2hKfr0ZcVEfIWpC+810q08qeORg252lb
+          hUInsldZSEL6Yl3fcH5Qi4G78S3g4YnDRiRHlCF3sQKBgQDO1A20sCevpST+TgL1
+          BBVFQJd159whZ2MOrVpeRtQ6n4ezl195b2cfTYLTer2CACcCu2IjJgou8QiPH9Wc
+          SA7ZMPN4LMYz37PqHQnpB9YOtl9owYZrwbOvscg92pUrl88CWybThoXb9I1MetnK
+          dOyj6QSR87kTQvYMdbfqbKhYyQKBgQD5MtD7qK0SocKHxj3PEysCreIn4a9XEIU4
+          wHWCm9on8b0RUXxr/OE3ALHfdggINbCMfwPfAFi8MweB/wvSXVZldO4PAptihvlJ
+          QAqWlLI5/uTwKMSuD3fCyAubQMj2ABAgu8yaHLT2Fl28hXbgGaNaazQlKojNeM/k
+          9ipZ1t8d6wKBgBSPiglDVb6lSScqtCqNTFwFDsl+0ihT8cn8u7YRjnmBcGkPDEOz
+          Kmo3N2E0m3A3+ajQ3fGmj26ZMYOg44hUtX0r25g/wzhW7bjBSEHtMH9n69YrHuTJ
+          bcZygvh7KUcbIU4Xp6Vxgw8ZoY5PzCTPONMWkAi+VNCwYGterHjWcmnZAoGAdkQu
+          uHDaCtCoYQWtidw/+lqJzYGnVHurrj5wxpau12w73b89fIacYB09TZ9XuoW4j0Us
+          kiY49sCFHKXtd14Cxc3TuV30XrNOFfyFyecyGqIlBvFiPnVq0g9cqsb5WP64qMBY
+          Hv/mxi/hNrpkq4CfbScZrVXdbR6cE77cZJy8cRcCgYEAvmOVe/U7djrswZy2hQ0a
+          Isku0i+iJK1e/JgHD8tXjz8cVsN1Cpz2YMEI+g3H9xqEpf8qcJCKGxV9MONViXbu
+          eGa8yrMvPeYyzQa9552HzwqBtET1FfgFwIKxC4d2K401KHHf64oJb0RRcHTtwcmx
+          db/I+TbSfkmQ+gExZ8ZhGr0=
+          -----END PRIVATE KEY-----
+    clients:
+      - id: ACT             # Client ID
+        description: FastAPI App
+        secret: '$argon2id$v=19$m=65536,t=3,p=4$BhB8+n+kDgFUU/MeFbfLig$uRPHZ/ivr1kXPAibeNR0dah+48R+d0GN4Qm4W1VJV1Y'
+        public: false
+        authorization_policy: one_factor
+        redirect_uris:
+          - https://fyp-act.hogwarts.ac/login-oauth/authelia # 回调地址
+        scopes:
+          - openid
+          - profile
+          - email
+          - groups
+      - id: ACT-2             # Client ID
+        description: ARM Cortex-M0 Tutor
+        secret: '$argon2id$v=19$m=65536,t=3,p=4$BhB8+n+kDgFUU/MeFbfLig$uRPHZ/ivr1kXPAibeNR0dah+48R+d0GN4Qm4W1VJV1Y'
+        public: false
+        authorization_policy: one_factor
+        redirect_uris:
+          - https://fyp-act.hogwarts.ac/api/login-oauth/authelia # 回调地址
+        scopes:
+          - openid
+          - profile
+          - email
+          - groups
+
+log:
+  level: info
+
+# 认证后端：这里使用本地文件，也可以配置 LDAP
+authentication_backend:
+  file:
+    path: /config/users_database.yml
+
+# 访问控制策略
+access_control:
+  default_policy: deny
+  rules:
+    - domain: "fyp-app.hogwarts.ac"
+      policy: one_factor
+
+# 会话存储 (连接到 Docker 中的 Redis)
+session:
+  name: authelia_session
+  redis:
+    host: ACT-auth-system-redis
+    port: 6379
+  cookies:
+    - domain: hogwarts.ac
+      authelia_url: https://fyp-app.hogwarts.ac
+      default_redirection_url: https://www.hogwarts.ac
+
+# 存储后端 (连接到 Docker 中的 Postgres)
+storage:
+  postgres:
+    host: ACT-auth-system-postgres
+    port: 5432
+    database: authelia
+    username: authelia
+  encryption_key: "QzpEHmQQEAwEqCKOSnWQd3ibg6x11fCViRzoY6kqzlmVlxQ0ugIsnzHFf9PR7iVx"
+
+# 通知方式 (用于发送重置密码邮件等)
+notifier:
+  filesystem:
+    filename: /config/notification.txt
+  # 生产环境请配置 SMTP:
+  # smtp:
+  #   host: smtp.gmail.com
+  #   port: 587
+  #   username: your_email@gmail.com

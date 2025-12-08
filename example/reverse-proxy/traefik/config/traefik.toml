@@ -1,0 +1,9 @@
+[providers.file]
+  directory = "/config"
+  watch = true
+
+[log]
+  level = "INFO"
+
+[accessLog]
+

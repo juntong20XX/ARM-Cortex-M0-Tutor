@@ -47,8 +47,8 @@ async def login(request: Request):
     :raise KeyError: 登录方式找不到
     """
     if request.session.get('user'):
-        # 无需登录, 重定向到根目录
-        return RedirectResponse(request.url_for('/'))
+        # 无需登录, 返回 204 或自定义跳转（如跳转到前端首页）
+        return RedirectResponse('/')
     s = settings.get_app_setting()
     if s.login_action == settings.LoginAction.oauth:
         _update_oauth_obj()
@@ -79,6 +79,7 @@ async def login_direct_oauth(request: Request):
         provider_name = session.query(db.models.OAuthProvider).first().name
     provider = getattr(oauth, provider_name)
     redirect_uri = request.url_for('login_oauth', provider_name=provider_name)
+    logger.warning(f"redirect_uri: {redirect_uri}")
     return await provider.authorize_redirect(request, redirect_uri)
 
 
@@ -103,9 +104,7 @@ async def login_oauth(request: Request, provider_name: str):
             user = db.find_user_by_provider_and_sub(session, provider_name, user_info["sub"])[0]
 
             # 解析用户信息 (Authlib 会自动使用 ID Token 或调用 userinfo 端点), 将用户信息存入 Session
-            request.session['user'] = token.get('userinfo')
-
-            return {
+            user_base_info = {
                 "success": True,
                 "uuid": user.uuid,
                 "display_name": user.username,
@@ -115,6 +114,10 @@ async def login_oauth(request: Request, provider_name: str):
                 "login_source": LoginSource.oauth,
                 "msg": ""
             }
+            request.session['user'] = {"uuid": user.uuid, "login_source": LoginSource.oauth, "display_name": user.username}
+
+            return user_base_info
+
     except Exception as e:
         logger.error(e)
         return {

@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 from invoke import Context
-from ARM_Cortex_M0_Tutor.connector import Config, clean, setup, start_qemu, stop_qemu, build, qemu_processes, debug, \
+from kernel.connector import Config, clean, setup, start_qemu, stop_qemu, build, qemu_processes, debug, \
     ASMLine, ASMParam
 
 # `setUP` cannot be used here, because it will be called before each test case.

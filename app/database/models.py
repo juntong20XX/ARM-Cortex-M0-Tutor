@@ -223,6 +223,9 @@ class DBProject(DBBase):
     uuid: Mapped[str] = mapped_column(String(36), primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    code: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    executed: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     description: Mapped[Optional[str]] = mapped_column(String(500))  # 可选字段
 
     # 外键使用与 users.uuid 相同的 UUID 字符串类型

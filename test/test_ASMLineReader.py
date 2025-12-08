@@ -1,6 +1,6 @@
 import unittest
 
-from ARM_Cortex_M0_Tutor.connector import ASMLineReader, ASMLine, ASMParam
+from kernel.connector import ASMLineReader, ASMLine, ASMParam
 
 class MyTestCase(unittest.TestCase):
     def test_something(self):

@@ -178,6 +178,7 @@ cython_debug/
 Develop Handbook.md
 *.pub
 .idea/
+.vscode/
 
 # My Ignore
 example/auth-system/cache

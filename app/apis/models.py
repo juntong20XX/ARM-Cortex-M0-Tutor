@@ -27,3 +27,37 @@ class UserBaseInfo(BaseModel):
     groups: list[str]
     join_date: datetime
     login_source: LoginSource
+
+
+class ProjectInfo(BaseModel):
+    """
+    项目信息响应模型
+    """
+    success: bool
+    msg: str
+    uuid: str
+    name: str
+    content: str
+    description: str | None
+    source: str
+    code: list
+    executed: list
+    owner_id: str
+    owner_name: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectSourceUpdate(BaseModel):
+    """
+    更新项目源代码的请求模型
+    """
+    source: str
+
+
+class BaseResponse(BaseModel):
+    """
+    通用响应模型
+    """
+    success: bool
+    msg: str

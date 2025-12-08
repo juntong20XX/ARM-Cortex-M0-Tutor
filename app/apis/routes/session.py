@@ -79,7 +79,6 @@ async def login_direct_oauth(request: Request):
         provider_name = session.query(db.models.OAuthProvider).first().name
     provider = getattr(oauth, provider_name)
     redirect_uri = request.url_for('login_oauth', provider_name=provider_name)
-    logger.warning(f"redirect_uri: {redirect_uri}")
     return await provider.authorize_redirect(request, redirect_uri)
 
 

@@ -1,11 +1,12 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 const route = useRoute()
+const router = useRouter()
 
 const status = ref('idle') // idle | loading | success | error
-const message = ref('等待处理登录...')
+const message = ref('Waiting to process login...')
 const userInfo = ref(null)
 
 const providerName = computed(() => (route.params.providerName || '').toString())
@@ -22,12 +23,12 @@ const apiUrl = computed(() => {
 const fetchUserInfo = async () => {
   if (!providerName.value) {
     status.value = 'error'
-    message.value = '缺少 provider_name 参数，无法继续登录。'
+    message.value = 'Missing provider_name parameter, cannot proceed with login.'
     return
   }
 
   status.value = 'loading'
-  message.value = '正在与服务器交换授权信息，请稍候...'
+  message.value = 'Exchanging authorization info with server, please wait...'
   userInfo.value = null
 
   try {
@@ -42,18 +43,18 @@ const fetchUserInfo = async () => {
     }
 
     if (!data?.success) {
-      throw new Error(data?.msg || '登录失败，请稍后重试。')
+      throw new Error(data?.msg || 'Login failed, please try again later.')
     }
 
     userInfo.value = {
       ...data,
       join_date: data.join_date ? new Date(data.join_date).toLocaleString() : '',
     }
-    message.value = data.msg || '登录成功，正在为你创建会话。'
+    message.value = data.msg || 'Login successful, creating session for you.'
     status.value = 'success'
   } catch (err) {
     status.value = 'error'
-    message.value = err?.message || '请求失败，请稍后再试。'
+    message.value = err?.message || 'Request failed, please try again later.'
   }
 }
 
@@ -68,55 +69,55 @@ watch(
 
 <template>
   <section class="panel">
-    <p class="eyebrow">OAuth 回调</p>
+    <p class="eyebrow">OAuth Callback</p>
     <h1 class="title">
-      正在处理
-      <span class="highlight">{{ providerName || '未知服务' }}</span>
-      登录
+      Processing
+      <span class="highlight">{{ providerName || 'Unknown Provider' }}</span>
+      Login
     </h1>
     <p class="muted">
-      本页会读取当前地址的查询参数，并将其转发至
-      <code>/api/login-oauth/{{ providerName }}</code> 完成验证。
+      This page reads the query parameters from current URL and forwards them to
+      <code>/api/login-oauth/{{ providerName }}</code> for verification.
     </p>
 
     <div class="status" :class="status">
-      <span v-if="status === 'loading'">正在校验授权，请稍候...</span>
-      <span v-else-if="status === 'success'">登录成功</span>
-      <span v-else-if="status === 'error'">登录失败</span>
-      <span v-else>等待处理</span>
+      <span v-if="status === 'loading'">Verifying authorization, please wait...</span>
+      <span v-else-if="status === 'success'">Login Successful</span>
+      <span v-else-if="status === 'error'">Login Failed</span>
+      <span v-else>Waiting</span>
       <p class="message">{{ message }}</p>
     </div>
 
     <div v-if="status === 'success' && userInfo" class="info-grid">
       <div class="info-item">
-        <label>用户 UUID</label>
+        <label>User UUID</label>
         <div>{{ userInfo.uuid }}</div>
       </div>
       <div class="info-item">
-        <label>显示名称</label>
+        <label>Display Name</label>
         <div>{{ userInfo.display_name }}</div>
       </div>
       <div class="info-item">
-        <label>邮箱</label>
+        <label>Email</label>
         <div>{{ userInfo.email }}</div>
       </div>
       <div class="info-item">
-        <label>加入时间</label>
+        <label>Joined At</label>
         <div>{{ userInfo.join_date }}</div>
       </div>
       <div class="info-item">
-        <label>登录来源</label>
+        <label>Login Source</label>
         <div>{{ userInfo.login_source }}</div>
       </div>
       <div class="info-item">
-        <label>用户组</label>
-        <div>{{ userInfo.groups?.join(', ') || '无' }}</div>
+        <label>Groups</label>
+        <div>{{ userInfo.groups?.join(', ') || 'None' }}</div>
       </div>
     </div>
 
     <div class="actions">
-      <button type="button" class="primary" @click="fetchUserInfo">重新尝试</button>
-      <a class="link" href="/">返回首页</a>
+      <button type="button" class="primary" @click="router.push('/login')">Retry</button>
+      <a class="link" href="/">Back to Home</a>
     </div>
   </section>
 </template>

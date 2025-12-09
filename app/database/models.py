@@ -37,6 +37,14 @@ class GroupMappingStrategy(str, PyEnum):
     REJECT = "reject"  # 拒绝，不允许登录
 
 
+class GroupPermissionStrategy(str, PyEnum):
+    """
+    组映射策略枚举类，用于定义当供应商组名没有映射到项目组名时的处理策略。
+    """
+    PERMIT = "permit"  # 无视，允许登录但不分配组
+    REJECT = "reject"  # 拒绝，不允许登录
+
+
 # 用户-组 多对多关联表
 user_group_association = Table(
     "user_group_association",
@@ -89,10 +97,10 @@ class DBGroup(DBBase):
     )
 
     # 未匹配处理策略：当组名没有映射到项目组名时的处理策略
-    unmapped_group_strategy: Mapped[GroupMappingStrategy] = mapped_column(
-        Enum(GroupMappingStrategy, native_enum=False, length=20),
+    unmapped_group_strategy: Mapped[GroupPermissionStrategy] = mapped_column(
+        Enum(GroupPermissionStrategy, native_enum=False, length=20),
         nullable=False,
-        default=GroupMappingStrategy.REJECT
+        default=GroupPermissionStrategy.REJECT
     )
 
     # 多对多关系: 组包含的用户

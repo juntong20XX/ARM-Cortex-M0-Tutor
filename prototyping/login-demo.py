@@ -1,5 +1,6 @@
 """
-
+OAuth 登录示例.
+打开 $YourWeb/api/login 登录
 """
 from app.apis import main
 from app.core import settings
@@ -33,12 +34,13 @@ if __name__ == "__main__":
         db.add_group(session, "admin")
         db.add_provider(session,
                         name="authelia",
-                        client_id="ACT-2",
+                        client_id="ACT",
                         client_secret="0sI2SoOidEfjlCi3FnO7j8PeDJ16ABLIf7dRqrlNpJg9rn1F4gwMfarxEgSICr2H",
                         authorize_url="https://fyp-auth.hogwarts.ac/.well-known/openid-configuration",
                         token_url="https://fyp-act.hogwarts.ac/api/login-oauth/authelia",
                         user_info_url="https://exmple.com",
                         group_mapping={"admins": "admin"},
+                        unmapped_group_strategy=db.GroupMappingStrategy.REJECT,
                         scope="openid profile email groups")
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

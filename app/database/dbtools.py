@@ -1,10 +1,11 @@
 """
 
 """
-from .models import DBUser, DBProject, OAuthProvider, PasswordAuth, OAuthAuthentication, DBGroup, GroupMappingStrategy
+from .models import (DBUser, DBProject, OAuthProvider, PasswordAuth, OAuthAuthentication, DBGroup,
+                     GroupMappingStrategy, GroupPermissionStrategy)
 from ..core.security import get_password_hash
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 import typing
@@ -190,6 +191,16 @@ def delete_project(session: Session, project_uuid: str, commit: bool = False) ->
     return True
 
 
+def find_user_by_uuid(session: Session, uuid: str) -> list[DBUser]:
+    """
+    Found user sequence with uuid, the uuid need be full-matched.
+    :param session: a db Session
+    :param uuid: str.
+    :return:
+    """
+    return session.query(DBUser).filter_by(uuid=uuid).all()
+
+
 def find_user_by_email_host(session: Session, email_host: str) -> list[DBUser]:
     """
     Found user sequence with the host of email, like `@outlook.com` or `liv.ac.uk`.
@@ -359,9 +370,35 @@ def add_user(session: Session,
             'password_hash': get_password_hash(password)
         }
 
+    # 处理 group
+    # -- 处理 OAuth Group
+    group_objs: list[DBGroup] = []
+    if oauth_groups and provider:
+        group_mapping = provider.group_mapping or {}
+        unmapped_strategy = provider.unmapped_group_strategy
+        mapped_group_names = apply_oauth_group_mapping(group_mapping, unmapped_strategy, oauth_groups)
+
+        # 将映射后的组添加到用户
+        for group_name in mapped_group_names:
+            group_list = find_group_by_name(session, group_name)
+            if not group_list:
+                raise KeyError(f"Mapped group '{group_name}' not found")
+            if group_list[0] not in group_objs:
+                group_objs.append(group_list[0])
+    # -- 将用户添加到指定的组（直接指定的组，不经过映射）
+    if groups:
+        for group_name in groups:
+            group_list = find_group_by_name(session, group_name)
+            if not group_list:
+                raise KeyError(f"Group '{group_name}' not found")
+            if group_list[0] not in group_objs:
+                group_objs.append(group_list[0])
+
     new_user = DBUser(**kwarg)
     # Add to session and optionally commit
     session.add(new_user)
+    # set group
+    new_user.groups.extend(group_objs)
 
     if oauth_name_sub:
         oauth_auth = OAuthAuthentication(user=new_user, **oauth_auth_kwargs)
@@ -369,29 +406,6 @@ def add_user(session: Session,
     if username_password:
         up_auth = PasswordAuth(user=new_user, **up_kwargs)
         session.add(up_auth)
-
-    # 处理 OAuth 组映射
-    if oauth_groups and provider:
-        group_mapping = provider.group_mapping or {}
-        unmapped_strategy = provider.unmapped_group_strategy
-        mapped_group_names = apply_oauth_group_mapping(group_mapping, unmapped_strategy, oauth_groups)
-        
-        # 将映射后的组添加到用户
-        for group_name in mapped_group_names:
-            group_list = find_group_by_name(session, group_name)
-            if not group_list:
-                raise KeyError(f"Mapped group '{group_name}' not found")
-            if group_list[0] not in new_user.groups:
-                new_user.groups.append(group_list[0])
-
-    # 将用户添加到指定的组（直接指定的组，不经过映射）
-    if groups:
-        for group_name in groups:
-            group_list = find_group_by_name(session, group_name)
-            if not group_list:
-                raise KeyError(f"Group '{group_name}' not found")
-            if group_list[0] not in new_user.groups:
-                new_user.groups.append(group_list[0])
 
     if commit:
         session.commit()
@@ -561,7 +575,7 @@ def add_group(session: Session,
               name: str,
               description: str = None,
               uuid: str = None,
-              unmapped_group_strategy: GroupMappingStrategy = GroupMappingStrategy.REJECT,
+              unmapped_group_strategy: GroupPermissionStrategy = GroupPermissionStrategy.REJECT,
               commit: bool = False) -> DBGroup:
     """
     添加新的用户组到数据库。
@@ -570,7 +584,7 @@ def add_group(session: Session,
     :param name: str, 唯一的组名
     :param description: str, 可选的组描述
     :param uuid: str, 可选的 UUID，不提供则自动生成
-    :param unmapped_group_strategy: GroupMappingStrategy, 未匹配处理策略 (default: REJECT)
+    :param unmapped_group_strategy: GroupPermissionStrategy, 未匹配处理策略 (default: REJECT)
     :param commit: bool, 是否提交会话 (default: False)
     :return: 创建的 DBGroup 对象
     :raise ValueError: 如果组名已存在
@@ -606,7 +620,7 @@ def update_group(session: Session,
                  name: str,
                  new_name: str = None,
                  description: str = None,
-                 unmapped_group_strategy: GroupMappingStrategy = None,
+                 unmapped_group_strategy: GroupPermissionStrategy = None,
                  commit: bool = False) -> DBGroup:
     """
     更新现有用户组信息。
@@ -615,7 +629,7 @@ def update_group(session: Session,
     :param name: str, 要更新的组名
     :param new_name: str, 可选的新组名
     :param description: str, 可选的新描述
-    :param unmapped_group_strategy: GroupMappingStrategy, 可选的未匹配处理策略
+    :param unmapped_group_strategy: GroupPermissionStrategy, 可选的未匹配处理策略
     :param commit: bool, 是否提交会话 (default: False)
     :return: 更新后的 DBGroup 对象
     :raise KeyError: 如果组名不存在

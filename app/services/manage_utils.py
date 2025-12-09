@@ -52,8 +52,11 @@ def check_user_permission_of_other_user(session: Session, user_uuid: str, other_
     """
     if user_uuid == other_user_uuid:
         return True
-    user = db.find_user_by_uuid(session, user_uuid)[0]
-    other = db.find_user_by_uuid(session, other_user_uuid)[0]
+    try:
+        user = db.find_user_by_uuid(session, user_uuid)[0]
+        other = db.find_user_by_uuid(session, other_user_uuid)[0]
+    except IndexError:
+        raise KeyError(f"User uuid {user_uuid} not found.")
     for user_group in user.groups:
         if user_group.unmapped_group_strategy == db.GroupPermissionStrategy.PERMIT:
             return True

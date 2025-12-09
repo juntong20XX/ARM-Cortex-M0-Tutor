@@ -1,5 +1,5 @@
 """
-
+APIs for session, like authentication.
 """
 from ..models import LoginSource
 from ... import database as db
@@ -78,7 +78,8 @@ async def login_direct_oauth(request: Request):
     with db.db_context() as session:
         provider_name = session.query(db.models.OAuthProvider).first().name
     provider = getattr(oauth, provider_name)
-    redirect_uri = request.url_for('login_oauth', provider_name=provider_name)
+    # OAuth 回调到前端页面，由前端转发参数到后端 API
+    redirect_uri = f"{request.base_url}login-oauth/{provider_name}"
     return await provider.authorize_redirect(request, redirect_uri)
 
 

@@ -1,0 +1,235 @@
+/* Login.vue 样式 */
+
+.login-page .highlight {
+  color: #0ea5e9;
+}
+
+.login-page.panel {
+  max-width: 680px;
+  margin: 48px auto;
+  padding: 32px;
+  background: linear-gradient(135deg, #fefefe 0%, #f8fafc 100%);
+  border-radius: 20px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+}
+
+.login-page .eyebrow {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0ea5e9;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.login-page .title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 8px;
+}
+
+.login-page .muted {
+  color: #64748b;
+  font-size: 14px;
+  margin-bottom: 24px;
+}
+
+.login-page .muted code {
+  background: #e2e8f0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.login-page .search-form {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.login-page .input {
+  flex: 1;
+  padding: 12px 16px;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  font-size: 15px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+}
+
+.login-page .input:focus {
+  border-color: #0ea5e9;
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
+}
+
+.login-page .input:disabled {
+  background: #f1f5f9;
+  cursor: not-allowed;
+}
+
+.login-page .status {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  font-weight: 500;
+}
+
+.login-page .status.loading {
+  border-color: #7dd3fc;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  color: #0369a1;
+}
+
+.login-page .status.success {
+  border-color: #86efac;
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  color: #166534;
+}
+
+.login-page .status.error {
+  border-color: #fca5a5;
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+  color: #991b1b;
+}
+
+.login-page .status .message {
+  margin-top: 6px;
+  font-weight: 400;
+  color: #4b5563;
+  font-size: 14px;
+}
+
+.login-page .info-grid {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.login-page .info-item {
+  padding: 14px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  transition: box-shadow 0.2s;
+}
+
+.login-page .info-item:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.login-page .info-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.login-page .info-item label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.login-page .info-item .value {
+  font-size: 15px;
+  color: #1e293b;
+  word-break: break-all;
+}
+
+.login-page .groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.login-page .tag {
+  display: inline-block;
+  padding: 4px 10px;
+  background: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
+  color: #fff;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.login-page .empty {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.login-page .actions {
+  margin-top: 24px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.login-page .primary {
+  border: none;
+  background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+  color: #fff;
+  padding: 12px 20px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.login-page .primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.35);
+}
+
+.login-page .primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.login-page .secondary {
+  border: 2px solid #e2e8f0;
+  background: #fff;
+  color: #475569;
+  padding: 10px 18px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.login-page .secondary:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.login-page .link {
+  color: #0ea5e9;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.login-page .link:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 600px) {
+  .login-page.panel {
+    margin: 20px 16px;
+    padding: 24px 20px;
+  }
+
+  .login-page .search-form {
+    flex-direction: column;
+  }
+
+  .login-page .info-grid {
+    grid-template-columns: 1fr;
+  }
+}
+

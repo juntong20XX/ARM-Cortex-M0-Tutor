@@ -10,7 +10,7 @@ from .dbtools import (
     find_user_by_provider, find_user_by_provider_and_sub,
     find_oauth_provider_by_name,
     add_provider, update_provider,
-    add_user,
+    add_user, update_user, update_user_last_login,
     # 用户组相关函数
     find_group_by_name, find_group_by_uuid, find_all_groups,
     add_group, update_group, delete_group,
@@ -37,7 +37,7 @@ __all__ = ["models",
            "find_project_by_owner_id",
            "find_oauth_provider_by_name",
            "add_provider", "update_provider",
-           "add_user",
+           "add_user", "update_user", "update_user_last_login",
            # 用户组相关
            "find_group_by_name", "find_group_by_uuid", "find_all_groups",
            "add_group", "update_group", "delete_group",

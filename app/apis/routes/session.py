@@ -102,6 +102,7 @@ async def login_oauth(request: Request, provider_name: str):
                 services.add_user_from_oauth_info(session, provider_name, user_info, commit=True)
 
             user = db.find_user_by_provider_and_sub(session, provider_name, user_info["sub"])[0]
+            db.update_user_last_login(session, user.uuid, db.models.UserLoginSource.OAUTH, commit=True)
 
             # 解析用户信息 (Authlib 会自动使用 ID Token 或调用 userinfo 端点), 将用户信息存入 Session
             user_base_info = {
@@ -111,6 +112,7 @@ async def login_oauth(request: Request, provider_name: str):
                 "email": user.email,
                 "groups": [group.name for group in user.groups],
                 "join_date": user.created_at,
+                "last_login": user.last_login,
                 "login_source": LoginSource.oauth,
                 "msg": ""
             }
@@ -128,5 +130,6 @@ async def login_oauth(request: Request, provider_name: str):
             "email": "0",
             "groups": [],
             "join_date": datetime.datetime.now(),
+            "last_login": datetime.datetime.now(),
             "login_source": LoginSource.oauth,
         }

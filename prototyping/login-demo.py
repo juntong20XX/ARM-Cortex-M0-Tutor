@@ -40,7 +40,7 @@ if __name__ == "__main__":
                         token_url="https://fyp-act.hogwarts.ac/api/login-oauth/authelia",
                         user_info_url="https://exmple.com",
                         group_mapping={"admins": "admin"},
-                        unmapped_group_strategy=db.GroupMappingStrategy.REJECT,
+                        unmapped_group_strategy=db.GroupMappingStrategy.IGNORE,
                         scope="openid profile email groups")
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

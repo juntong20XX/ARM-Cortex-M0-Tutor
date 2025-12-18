@@ -26,6 +26,7 @@ class UserBaseInfo(BaseModel):
     email: str
     groups: list[str]
     join_date: datetime
+    last_login: datetime
     login_source: LoginSource
 
 

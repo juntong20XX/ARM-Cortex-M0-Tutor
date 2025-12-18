@@ -2,7 +2,7 @@
 
 """
 from .models import (DBUser, DBProject, OAuthProvider, PasswordAuth, OAuthAuthentication, DBGroup,
-                     GroupMappingStrategy, GroupPermissionStrategy)
+                     GroupMappingStrategy, GroupPermissionStrategy, UserLoginSource)
 from ..core.security import get_password_hash
 
 from sqlalchemy import select
@@ -302,6 +302,7 @@ def add_user(session: Session,
              username_password: None | typing.Iterable[str] = None,
              created_at: None | datetime = None,
              is_active: bool = True,
+             last_login_source: UserLoginSource = UserLoginSource.NONE,
              groups: None | list[str] = None,
              oauth_groups: None | list[str] = None,
              commit: bool = False) -> DBUser:
@@ -316,6 +317,7 @@ def add_user(session: Session,
     :param username_password:
     :param created_at:
     :param is_active: bool, whether the user account is active (default: True)
+    :param last_login_source: UserLoginSource, the last login source (default: UserLoginSource.NONE)
     :param groups: list[str], optional list of group names to add the user to
     :param oauth_groups: list[str], optional list of provider group names from OAuth provider.
                         When provided with oauth_name_sub, these groups will be mapped to project groups
@@ -339,7 +341,8 @@ def add_user(session: Session,
         'username': username,
         'email': email,
         'is_active': is_active,
-        'updated_at': datetime.now(UTC),
+        'last_login_source': last_login_source,
+        'last_login': datetime.now(UTC),
     }
 
     if created_at:
@@ -412,6 +415,91 @@ def add_user(session: Session,
         session.refresh(new_user)
 
     return new_user
+
+
+def update_user(session: Session,
+                user_uuid: str,
+                username: str = None,
+                email: str = None,
+                is_active: bool = None,
+                last_login_source: UserLoginSource = None,
+                commit: bool = False) -> DBUser:
+    """
+    更新现有用户信息。
+    
+    :param session: a db Session
+    :param user_uuid: str, 要更新的用户 UUID
+    :param username: str, 可选的新用户名
+    :param email: str, 可选的新邮箱
+    :param is_active: bool, 可选的账户激活状态
+    :param last_login_source: UserLoginSource, 可选的最后登录方式
+    :param commit: bool, 是否提交会话 (default: False)
+    :return: 更新后的 DBUser 对象
+    :raise KeyError: 如果用户不存在
+    :raise ValueError: 如果新用户名或邮箱已被其他用户使用
+    """
+    users = find_user_by_uuid(session, user_uuid)
+    if not users:
+        raise KeyError(f"User with UUID '{user_uuid}' not found")
+
+    user = users[0]
+
+    if username is not None and username != user.username:
+        # 检查新用户名是否已被使用
+        existing = find_user_by_username(session, username)
+        if existing:
+            raise ValueError(f"User with username '{username}' already exists")
+        user.username = username
+
+    if email is not None and email != user.email:
+        # 检查新邮箱是否已被使用
+        existing = find_user_by_email(session, email)
+        if existing:
+            raise ValueError(f"User with email '{email}' already exists")
+        user.email = email
+
+    if is_active is not None:
+        user.is_active = is_active
+
+    if last_login_source is not None:
+        user.last_login_source = last_login_source
+
+    user.last_login = datetime.now(UTC)
+
+    if commit:
+        session.commit()
+        session.refresh(user)
+
+    return user
+
+
+def update_user_last_login(session: Session,
+                           user_uuid: str,
+                           last_login_source: UserLoginSource,
+                           commit: bool = False) -> DBUser:
+    """
+    更新用户的最后登录方式和登录时间。
+    
+    :param session: a db Session
+    :param user_uuid: str, 用户的 UUID
+    :param last_login_source: UserLoginSource, 最后登录方式
+    :param commit: bool, 是否提交会话 (default: False)
+    :return: 更新后的 DBUser 对象
+    :raise KeyError: 如果用户不存在
+    """
+    users = find_user_by_uuid(session, user_uuid)
+    if not users:
+        raise KeyError(f"User with UUID '{user_uuid}' not found")
+
+    user = users[0]
+    user.last_login_source = last_login_source
+    user.last_login = datetime.now(UTC)
+
+    if commit:
+        session.commit()
+        session.refresh(user)
+
+    return user
 
 
 def find_oauth_provider_by_name(session: Session, provider_name: str) -> list[OAuthProvider]:

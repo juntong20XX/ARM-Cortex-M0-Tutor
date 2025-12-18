@@ -1,9 +1,11 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useSession } from '../composables/useSession'
 
 const route = useRoute()
 const router = useRouter()
+const { saveSession } = useSession()
 
 const status = ref('idle') // idle | loading | success | error
 const message = ref('Waiting to process login...')
@@ -49,9 +51,18 @@ const fetchUserInfo = async () => {
     userInfo.value = {
       ...data,
       join_date: data.join_date ? new Date(data.join_date).toLocaleString() : '',
+      last_login: data.last_login ? new Date(data.last_login).toLocaleString() : '',
     }
     message.value = data.msg || 'Login successful, creating session for you.'
     status.value = 'success'
+    
+    // 保存用户会话信息到前端
+    if (data.uuid && data.display_name) {
+      saveSession({
+        uuid: data.uuid,
+        display_name: data.display_name
+      })
+    }
   } catch (err) {
     status.value = 'error'
     message.value = err?.message || 'Request failed, please try again later.'
@@ -104,6 +115,10 @@ watch(
       <div class="info-item">
         <label>Joined At</label>
         <div>{{ userInfo.join_date }}</div>
+      </div>
+      <div class="info-item">
+        <label>Last Login</label>
+        <div>{{ userInfo.last_login }}</div>
       </div>
       <div class="info-item">
         <label>Login Source</label>

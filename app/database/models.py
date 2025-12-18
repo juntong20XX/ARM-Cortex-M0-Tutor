@@ -152,11 +152,11 @@ class OAuthProvider(DBBase):
     token_url: Mapped[str] = mapped_column(String(500), nullable=False)
     user_info_url: Mapped[str] = mapped_column(String(500), nullable=False)
     scope: Mapped[str] = mapped_column(String(500), nullable=False)
-    
+
     # 组映射：存储供应商组名到项目组名的对应关系
     # 格式：{"供应商组名1": "项目组名1", "供应商组名2": "项目组名2", ...}
     group_mapping: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, default=None)
-    
+
     # 未映射组策略：当供应商组名没有在 group_mapping 中找到对应关系时的处理策略
     unmapped_group_strategy: Mapped[GroupMappingStrategy] = mapped_column(
         Enum(GroupMappingStrategy, native_enum=False, length=20),
@@ -177,7 +177,6 @@ class OAuthAuthentication(DBBase):
     # 使用外键关联到 OAuthProvider 模型
     provider_name: Mapped[str] = mapped_column(String(50), ForeignKey("oauth_providers.name"), nullable=False)
 
-
     user: Mapped["DBUser"] = relationship("DBUser", back_populates="oauth_auth")
 
     # 建立与 OAuthProvider 的关系
@@ -185,6 +184,15 @@ class OAuthAuthentication(DBBase):
 
     # 确保每个提供商的用户 ID 是唯一的
     __table_args__ = (UniqueConstraint('provider_name', name='_provider_openid_uc'),)
+
+
+class UserLoginSource(str, PyEnum):
+    """
+    用户登录方式枚举类
+    """
+    NONE = "none"  # 无登录方式, 或未记录
+    PASSWORD = "password"
+    OAUTH = "oauth"
 
 
 class DBUser(DBBase):
@@ -198,9 +206,16 @@ class DBUser(DBBase):
     username: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
     email: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
-    updated_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc), onupdate=lambda: datetime.datetime.now(datetime.timezone.utc)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime,
+                                                          default=lambda: datetime.datetime.now(datetime.timezone.utc))
+    last_login: Mapped[datetime.datetime] = mapped_column(
+        DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc),
+        onupdate=lambda: datetime.datetime.now(datetime.timezone.utc)
+    )
+    last_login_source: Mapped[UserLoginSource] = mapped_column(
+        Enum(UserLoginSource, native_enum=False, length=20),
+        nullable=False,
+        default=UserLoginSource.NONE
     )
 
     # 一对一关系: 任选其一就好，由业务逻辑保证 XXX: 没有检查是否声明了定义方式
@@ -239,9 +254,11 @@ class DBProject(DBBase):
     # 外键使用与 users.uuid 相同的 UUID 字符串类型
     owner_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.uuid"), nullable=False)
 
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime,
+                                                          default=lambda: datetime.datetime.now(datetime.timezone.utc))
     updated_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc), onupdate=lambda: datetime.datetime.now(datetime.timezone.utc)
+        DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc),
+        onupdate=lambda: datetime.datetime.now(datetime.timezone.utc)
     )
 
     owner: Mapped["DBUser"] = relationship("DBUser", back_populates="projects")

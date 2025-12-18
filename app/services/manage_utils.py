@@ -48,6 +48,7 @@ def check_user_permission_of_other_user(session: Session, user_uuid: str, other_
     :param session:
     :param user_uuid:
     :param other_user_uuid:
+    :raise KeyError: user not found
     :return:
     """
     if user_uuid == other_user_uuid:

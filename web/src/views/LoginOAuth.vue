@@ -1,28 +1,62 @@
-<script setup>
+<script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useSession } from '../composables/useSession'
+import { ElMessage } from 'element-plus'
+import {
+  Loading,
+  CircleCheckFilled,
+  CircleCloseFilled,
+  Clock,
+  Refresh,
+  HomeFilled
+} from '@element-plus/icons-vue'
+
+// Type definitions
+type LoginStatus = 'idle' | 'loading' | 'success' | 'error'
+
+interface UserInfo {
+  uuid: string
+  display_name: string
+  email: string
+  join_date: string
+  last_login: string
+  login_source: string
+  groups: string[]
+  msg?: string
+  success?: boolean
+}
 
 const route = useRoute()
 const router = useRouter()
 const { saveSession } = useSession()
 
-const status = ref('idle') // idle | loading | success | error
-const message = ref('Waiting to process login...')
-const userInfo = ref(null)
+const status = ref<LoginStatus>('idle')
+const message = ref<string>('Waiting to process login...')
+const userInfo = ref<UserInfo | null>(null)
 
-const providerName = computed(() => (route.params.providerName || '').toString())
-const queryString = computed(() => {
-  const search = new URLSearchParams(route.query).toString()
+const providerName = computed<string>(() => (route.params.providerName || '').toString())
+const queryString = computed<string>(() => {
+  const search = new URLSearchParams(route.query as Record<string, string>).toString()
   return search ? `?${search}` : ''
 })
 
-const apiUrl = computed(() => {
+const apiUrl = computed<string>(() => {
   if (!providerName.value) return ''
   return `/api/login-oauth/${encodeURIComponent(providerName.value)}${queryString.value}`
 })
 
-const fetchUserInfo = async () => {
+// Status configuration mapping
+const statusConfig = computed(() => ({
+  idle: { type: 'info' as const, icon: Clock, text: 'Waiting' },
+  loading: { type: 'info' as const, icon: Loading, text: 'Verifying authorization, please wait...' },
+  success: { type: 'success' as const, icon: CircleCheckFilled, text: 'Login Successful' },
+  error: { type: 'error' as const, icon: CircleCloseFilled, text: 'Login Failed' }
+}))
+
+const currentStatusConfig = computed(() => statusConfig.value[status.value])
+
+const fetchUserInfo = async (): Promise<void> => {
   if (!providerName.value) {
     status.value = 'error'
     message.value = 'Missing provider_name parameter, cannot proceed with login.'
@@ -56,7 +90,9 @@ const fetchUserInfo = async () => {
     message.value = data.msg || 'Login successful, creating session for you.'
     status.value = 'success'
     
-    // 保存用户会话信息到前端
+    ElMessage.success('Login successful!')
+    
+    // Save user session info to frontend
     if (data.uuid && data.display_name) {
       saveSession({
         uuid: data.uuid,
@@ -65,8 +101,17 @@ const fetchUserInfo = async () => {
     }
   } catch (err) {
     status.value = 'error'
-    message.value = err?.message || 'Request failed, please try again later.'
+    message.value = (err as Error)?.message || 'Request failed, please try again later.'
+    ElMessage.error(message.value)
   }
+}
+
+const handleRetry = (): void => {
+  router.push('/login')
+}
+
+const handleGoHome = (): void => {
+  router.push('/')
 }
 
 onMounted(fetchUserInfo)
@@ -79,140 +124,233 @@ watch(
 </script>
 
 <template>
-  <section class="panel">
-    <p class="eyebrow">OAuth Callback</p>
-    <h1 class="title">
-      Processing
-      <span class="highlight">{{ providerName || 'Unknown Provider' }}</span>
-      Login
-    </h1>
-    <p class="muted">
-      This page reads the query parameters from current URL and forwards them to
-      <code>/api/login-oauth/{{ providerName }}</code> for verification.
-    </p>
+  <div class="login-oauth-container">
+    <el-card class="oauth-card" shadow="hover">
+      <template #header>
+        <div class="card-header">
+          <el-tag type="info" effect="plain" size="small">OAuth Callback</el-tag>
+          <h1 class="title">
+            Processing
+            <el-tag type="primary" effect="dark" size="large" class="provider-tag">
+              {{ providerName || 'Unknown Provider' }}
+            </el-tag>
+            Login
+          </h1>
+          <p class="description">
+            This page reads the query parameters from current URL and forwards them to
+            <el-tag type="info" size="small">
+              /api/login-oauth/{{ providerName }}
+            </el-tag>
+            for verification.
+          </p>
+        </div>
+      </template>
 
-    <div class="status" :class="status">
-      <span v-if="status === 'loading'">Verifying authorization, please wait...</span>
-      <span v-else-if="status === 'success'">Login Successful</span>
-      <span v-else-if="status === 'error'">Login Failed</span>
-      <span v-else>Waiting</span>
-      <p class="message">{{ message }}</p>
-    </div>
+      <!-- Status Display -->
+      <el-alert
+        :title="currentStatusConfig.text"
+        :type="currentStatusConfig.type"
+        :closable="false"
+        show-icon
+        class="status-alert"
+      >
+        <template #default>
+          <div class="status-content">
+            <el-icon v-if="status === 'loading'" class="is-loading">
+              <Loading />
+            </el-icon>
+            <span class="status-message">{{ message }}</span>
+          </div>
+        </template>
+      </el-alert>
 
-    <div v-if="status === 'success' && userInfo" class="info-grid">
-      <div class="info-item">
-        <label>User UUID</label>
-        <div>{{ userInfo.uuid }}</div>
-      </div>
-      <div class="info-item">
-        <label>Display Name</label>
-        <div>{{ userInfo.display_name }}</div>
-      </div>
-      <div class="info-item">
-        <label>Email</label>
-        <div>{{ userInfo.email }}</div>
-      </div>
-      <div class="info-item">
-        <label>Joined At</label>
-        <div>{{ userInfo.join_date }}</div>
-      </div>
-      <div class="info-item">
-        <label>Last Login</label>
-        <div>{{ userInfo.last_login }}</div>
-      </div>
-      <div class="info-item">
-        <label>Login Source</label>
-        <div>{{ userInfo.login_source }}</div>
-      </div>
-      <div class="info-item">
-        <label>Groups</label>
-        <div>{{ userInfo.groups?.join(', ') || 'None' }}</div>
-      </div>
-    </div>
+      <!-- User Info Display -->
+      <el-collapse-transition>
+        <div v-if="status === 'success' && userInfo" class="user-info-section">
+          <el-divider content-position="left">
+            <el-icon><CircleCheckFilled /></el-icon>
+            User Information
+          </el-divider>
+          
+          <el-descriptions
+            :column="2"
+            border
+            class="user-descriptions"
+          >
+            <el-descriptions-item label="User UUID" :span="2">
+              <el-text type="primary" tag="code">{{ userInfo.uuid }}</el-text>
+            </el-descriptions-item>
+            <el-descriptions-item label="Display Name">
+              <el-text type="success" tag="b">{{ userInfo.display_name }}</el-text>
+            </el-descriptions-item>
+            <el-descriptions-item label="Email">
+              <el-link type="primary" :underline="false">{{ userInfo.email }}</el-link>
+            </el-descriptions-item>
+            <el-descriptions-item label="Joined At">
+              <el-icon><Clock /></el-icon>
+              {{ userInfo.join_date }}
+            </el-descriptions-item>
+            <el-descriptions-item label="Last Login">
+              <el-icon><Clock /></el-icon>
+              {{ userInfo.last_login }}
+            </el-descriptions-item>
+            <el-descriptions-item label="Login Source">
+              <el-tag type="warning" effect="plain">{{ userInfo.login_source }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="Groups">
+              <el-space wrap>
+                <el-tag
+                  v-for="group in (userInfo.groups || [])"
+                  :key="group"
+                  type="success"
+                  effect="light"
+                  size="small"
+                >
+                  {{ group }}
+                </el-tag>
+                <el-text v-if="!userInfo.groups?.length" type="info">None</el-text>
+              </el-space>
+            </el-descriptions-item>
+          </el-descriptions>
+        </div>
+      </el-collapse-transition>
 
-    <div class="actions">
-      <button type="button" class="primary" @click="router.push('/login')">Retry</button>
-      <a class="link" href="/">Back to Home</a>
-    </div>
-  </section>
+      <!-- Action Buttons -->
+      <div class="actions">
+        <el-button
+          type="primary"
+          :icon="Refresh"
+          @click="handleRetry"
+        >
+          Retry
+        </el-button>
+        <el-button
+          :icon="HomeFilled"
+          @click="handleGoHome"
+        >
+          Back to Home
+        </el-button>
+      </div>
+    </el-card>
+  </div>
 </template>
 
 <style scoped>
-.highlight {
-  color: #2563eb;
+.login-oauth-container {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 
-.status {
+.oauth-card {
+  width: 100%;
+  max-width: 680px;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.card-header {
+  text-align: center;
+}
+
+.title {
+  margin: 12px 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #303133;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.provider-tag {
+  font-size: 18px;
+  padding: 8px 16px;
+}
+
+.description {
+  color: #909399;
+  font-size: 14px;
+  margin: 0;
+  line-height: 1.6;
+}
+
+.status-alert {
+  margin-bottom: 20px;
+}
+
+.status-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.status-message {
+  color: #606266;
+}
+
+.is-loading {
+  animation: rotate 1.5s linear infinite;
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.user-info-section {
   margin-top: 16px;
-  padding: 14px 16px;
-  border-radius: 12px;
-  border: 1px solid #e5e7eb;
-  background: #f9fafb;
 }
 
-.status.loading {
-  border-color: #93c5fd;
-  background: #eff6ff;
-}
-
-.status.success {
-  border-color: #86efac;
-  background: #f0fdf4;
-}
-
-.status.error {
-  border-color: #fca5a5;
-  background: #fef2f2;
-}
-
-.status .message {
-  margin-top: 6px;
-  color: #4b5563;
-}
-
-.info-grid {
+.user-descriptions {
   margin-top: 16px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 12px;
 }
 
-.info-item {
-  padding: 12px;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  background: #fff;
+.user-descriptions :deep(.el-descriptions__label) {
+  font-weight: 500;
+  min-width: 100px;
 }
 
-.info-item label {
-  display: block;
-  font-size: 12px;
-  color: #6b7280;
-  margin-bottom: 4px;
+.user-descriptions :deep(code) {
+  background: #f5f7fa;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
 }
 
 .actions {
-  margin-top: 18px;
+  margin-top: 24px;
   display: flex;
-  gap: 12px;
-  align-items: center;
+  justify-content: center;
+  gap: 16px;
 }
 
-.primary {
-  border: none;
-  background: #2563eb;
-  color: #fff;
-  padding: 10px 14px;
-  border-radius: 10px;
-  cursor: pointer;
-}
-
-.primary:hover {
-  background: #1d4ed8;
-}
-
-.link {
-  color: #2563eb;
+@media (max-width: 768px) {
+  .user-descriptions :deep(.el-descriptions__body) {
+    display: block;
+  }
+  
+  .title {
+    font-size: 20px;
+  }
+  
+  .actions {
+    flex-direction: column;
+  }
+  
+  .actions .el-button {
+    width: 100%;
+  }
 }
 </style>
-

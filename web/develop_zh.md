@@ -7,6 +7,8 @@
 ## 技术栈
 
 - **框架**: Vue 3 (Composition API)
+- **语言**: TypeScript
+- **UI 组件库**: Element Plus
 - **构建工具**: Vite 7.x
 - **路由**: Vue Router 4.x
 - **开发工具**: Vue DevTools
@@ -101,7 +103,7 @@ npm run preview
 
 ### API 说明
 
-```javascript
+```typescript
 import { useSession } from '@/composables/useSession'
 
 const {
@@ -117,14 +119,19 @@ const {
 
 ### 使用示例
 
-```javascript
-<script setup>
+```typescript
+<script setup lang="ts">
 import { useSession } from '@/composables/useSession'
+
+interface UserData {
+  uuid: string
+  display_name: string
+}
 
 const { saveSession, clearSession, isAuthenticated, userUuid } = useSession()
 
 // 保存会话
-function handleLogin(userData) {
+function handleLogin(userData: UserData): void {
   saveSession({
     uuid: userData.uuid,
     display_name: userData.display_name
@@ -132,7 +139,7 @@ function handleLogin(userData) {
 }
 
 // 清除会话（登出）
-function handleLogout() {
+function handleLogout(): void {
   clearSession()
 }
 
@@ -254,7 +261,7 @@ const data = await res.json()
 
 ### 添加新页面
 
-1. 在 `src/views/` 目录下创建新的 Vue 组件
+1. 在 `src/views/` 目录下创建新的 Vue 组件（推荐使用 TypeScript）
 2. 在 `src/router/index.js` 中添加路由配置：
 
 ```javascript
@@ -267,31 +274,140 @@ import NewView from '../views/NewView.vue'
 }
 ```
 
+### 新页面模板示例
+
+```vue
+<script setup lang="ts">
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { HomeFilled } from '@element-plus/icons-vue'
+
+const router = useRouter()
+const loading = ref<boolean>(false)
+
+const handleAction = async (): Promise<void> => {
+  loading.value = true
+  try {
+    // 业务逻辑
+    ElMessage.success('操作成功')
+  } catch (err) {
+    ElMessage.error((err as Error).message)
+  } finally {
+    loading.value = false
+  }
+}
+</script>
+
+<template>
+  <div class="page-container">
+    <el-card shadow="hover">
+      <template #header>
+        <h1>页面标题</h1>
+      </template>
+      
+      <el-button
+        type="primary"
+        :loading="loading"
+        @click="handleAction"
+      >
+        操作按钮
+      </el-button>
+      
+      <el-button :icon="HomeFilled" @click="router.push('/')">
+        返回首页
+      </el-button>
+    </el-card>
+  </div>
+</template>
+
+<style scoped>
+.page-container {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+</style>
+```
+
 ### 使用会话信息
 
 在任何组件中使用会话信息：
 
-```javascript
-<script setup>
+```vue
+<script setup lang="ts">
 import { useSession } from '@/composables/useSession'
 
 const { isAuthenticated, userUuid, userDisplayName } = useSession()
 </script>
 
 <template>
-  <div v-if="isAuthenticated">
-    <p>欢迎, {{ userDisplayName }}!</p>
-    <p>UUID: {{ userUuid }}</p>
-  </div>
+  <el-card v-if="isAuthenticated">
+    <el-descriptions :column="1" border>
+      <el-descriptions-item label="Welcome">
+        <el-text type="success">{{ userDisplayName }}</el-text>
+      </el-descriptions-item>
+      <el-descriptions-item label="UUID">
+        <el-text type="primary" tag="code">{{ userUuid }}</el-text>
+      </el-descriptions-item>
+    </el-descriptions>
+  </el-card>
 </template>
 ```
 
 ### 样式规范
 
 - 使用 scoped CSS 避免样式污染
-- 主要颜色：`#2563eb` (蓝色)
-- 圆角：`10px` - `14px`
-- 间距：使用 `12px`、`16px`、`18px` 等
+- 使用 Element Plus 组件库进行 UI 开发
+- Element Plus 主题色：`#409EFF` (蓝色)
+- 背景渐变：`linear-gradient(135deg, #667eea 0%, #764ba2 100%)`
+- 卡片圆角：`16px`
+- 间距：使用 `12px`、`16px`、`20px`、`24px` 等
+
+### Element Plus 常用组件
+
+| 组件 | 用途 |
+|------|------|
+| `el-card` | 卡片容器 |
+| `el-button` | 按钮 |
+| `el-alert` | 提示/状态信息 |
+| `el-descriptions` | 描述列表 |
+| `el-tag` | 标签 |
+| `el-text` | 文本 |
+| `el-link` | 链接 |
+| `el-icon` | 图标 |
+| `el-space` | 间距容器 |
+| `el-divider` | 分割线 |
+| `el-message` | 消息提示 |
+| `el-collapse-transition` | 折叠过渡动画 |
+
+### Element Plus 图标使用
+
+图标来自 `@element-plus/icons-vue` 包：
+
+```typescript
+import {
+  User,
+  Lock,
+  Loading,
+  CircleCheckFilled,
+  CircleCloseFilled,
+  Clock,
+  Refresh,
+  HomeFilled,
+  SwitchButton
+} from '@element-plus/icons-vue'
+```
+
+在模板中使用：
+
+```vue
+<el-icon><User /></el-icon>
+<el-button :icon="Refresh">刷新</el-button>
+```
 
 ### 路径别名
 
@@ -377,6 +493,15 @@ A: 在浏览器开发者工具中：
 
 ## 更新日志
 
+### 2025-12-18
+- 引入 Element Plus UI 组件库
+- 使用 TypeScript 重写 `Login.vue` 和 `LoginOAuth.vue`
+- 使用 `el-card`、`el-alert`、`el-descriptions`、`el-button` 等组件重构 UI
+- 添加 `ElMessage` 消息提示功能
+- 添加响应式布局支持移动端
+- 添加过渡动画效果 (`el-collapse-transition`)
+- 更新入口文件 `main.js`，全局注册 Element Plus
+
 ### 2025-12-08
 - 添加前端会话管理机制（`useSession` composable）
 - OAuth 回调地址改为前端路径 `/login-oauth/{providerName}`
@@ -389,3 +514,6 @@ A: 在浏览器开发者工具中：
 - [Vue Router 文档](https://router.vuejs.org/)
 - [Vite 文档](https://vite.dev/)
 - [Composition API 指南](https://vuejs.org/guide/extras/composition-api-faq.html)
+- [Element Plus 文档](https://element-plus.org/)
+- [Element Plus 图标](https://element-plus.org/zh-CN/component/icon.html)
+- [TypeScript 文档](https://www.typescriptlang.org/docs/)

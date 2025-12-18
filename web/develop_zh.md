@@ -9,6 +9,7 @@
 - **框架**: Vue 3 (Composition API)
 - **语言**: TypeScript
 - **UI 组件库**: Element Plus
+- **代码编辑器**: Vue Prism Editor + PrismJS
 - **构建工具**: Vite 7.x
 - **路由**: Vue Router 4.x
 - **开发工具**: Vue DevTools
@@ -32,7 +33,8 @@ web/
 │   ├── views/             # 页面组件
 │   │   ├── HomeView.vue  # 首页
 │   │   ├── Login.vue     # 登录页
-│   │   └── LoginOAuth.vue # OAuth 回调页
+│   │   ├── LoginOAuth.vue # OAuth 回调页
+│   │   └── Demo.vue      # 原型演示页
 │   ├── App.vue           # 根组件
 │   └── main.js           # 入口文件
 ├── index.html            # HTML 模板
@@ -87,6 +89,7 @@ npm run preview
 | `/` | `home` | `HomeView` | 首页 |
 | `/login` | `login` | `Login` | 登录页 |
 | `/login-oauth/:providerName` | `login-oauth` | `LoginOAuth` | OAuth 回调页 |
+| `/demo` | `demo` | `Demo` | 原型演示页 |
 | `/*` | - | - | 404 重定向到首页 |
 
 ### 路由参数
@@ -418,6 +421,25 @@ import { useSession } from '@/composables/useSession'
 import HomeView from '@/views/HomeView.vue'
 ```
 
+## 构建优化
+
+### 体积优化策略
+
+项目采用了以下策略来优化构建产物体积：
+
+1. **组件按需加载**
+   - 使用 `unplugin-vue-components` 和 `unplugin-auto-import` 插件
+   - 自动按需引入 Element Plus 组件，避免全量打包
+   - `vite.config.js` 中配置相应的 resolvers
+
+2. **代码分包 (Code Splitting)**
+   - 在 `vite.config.js` 的 `rollupOptions` 中配置 `manualChunks`
+   - 将第三方依赖拆分为独立 chunk：
+     - `element-plus`: UI 库单独打包
+     - `prism`: 代码高亮库单独打包
+     - `vue-vendor`: Vue 核心库
+     - `vendor`: 其他依赖
+
 ## 部署说明
 
 ### 构建配置
@@ -494,6 +516,12 @@ A: 在浏览器开发者工具中：
 ## 更新日志
 
 ### 2025-12-18
+- 新增 `/demo` 原型演示页面
+  - 集成 `vue-prism-editor` 实现代码编辑（带行号、高亮）
+  - 实现寄存器 (R0-R13) 和内存可视化展示
+- 构建与性能优化
+  - 配置 `unplugin-vue-components` 和 `unplugin-auto-import` 实现 Element Plus 按需加载
+  - 优化 Vite 构建配置，实施 Manual Chunks 代码分包策略，大幅减小打包体积
 - 引入 Element Plus UI 组件库
 - 使用 TypeScript 重写 `Login.vue` 和 `LoginOAuth.vue`
 - 使用 `el-card`、`el-alert`、`el-descriptions`、`el-button` 等组件重构 UI

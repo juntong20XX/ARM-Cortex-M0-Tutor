@@ -1,99 +1,119 @@
 <template>
-  <div class="demo-container" ref="demoContainerRef">
+  <div class="demo-container" ref="demoContainerRef" :style="{ paddingLeft: paddingLeft + 'px', paddingRight: paddingRight + 'px' }">
+    <!-- 左边缘拖拽条 -->
+    <div class="resize-edge resize-edge-left" @mousedown.prevent="startEdgeResize('left', $event)"></div>
+
     <div class="left-panel" ref="leftPanelRef">
       <div class="toolbar">
         <el-button type="primary" size="small" @click="runDemo" :disabled="isAnimating">
-          <el-icon><VideoPlay /></el-icon> 演示执行 (ADD 2 r0 r1)
+          <el-icon><VideoPlay /></el-icon> Run Demo (ADD 2 r0 r1)
         </el-button>
         <el-tag v-if="currentStepText" type="warning" class="step-info">{{ currentStepText }}</el-tag>
       </div>
-      <div class="editor-wrapper">
-        <div class="line-numbers">
-          <div v-for="n in lineCount" :key="n" :class="{ 'active-line': n === 4 }" ref="activeLineRef">{{ n }}</div>
+      <div class="editor-wrapper" :style="{ height: editorHeight + 'px' }">
+        <div class="code-lines">
+          <div
+            v-for="(line, index) in codeLines"
+            :key="index"
+            :ref="el => setLineRef(el, index)"
+            class="code-line"
+            :class="{ 'active-line': index === activeLineIndex }"
+          >
+            <span class="line-number">{{ index + 1 }}</span>
+            <label class="line-content">{{ line || '\u00A0' }}</label>
+          </div>
         </div>
-        <prism-editor
-          class="my-editor"
-          v-model="code"
-          :highlight="highlighter"
-          line-numbers
-          readonly
-        ></prism-editor>
       </div>
+      <div class="resize-handle-h" @mousedown.prevent="startVertResize('editor-canvas', $event)"></div>
       <div class="canvas-container">
          <div class="canvas-header">MCU Architecture & Data Bus</div>
          <canvas ref="archCanvas" width="800" height="450"></canvas>
       </div>
     </div>
-    <div class="right-panel" ref="rightPanelRef">
-      <!-- Flags Card (New) -->
-      <el-card class="box-card">
-        <template #header>
-          <div class="card-header">
-            <span>标志位 (Flags)</span>
-          </div>
-        </template>
-        <div class="flags-container">
-          <div class="flag-item" :class="{ active: flags.N }">
-            <span class="flag-name">N</span>
-            <span class="flag-val">{{ flags.N ? 1 : 0 }}</span>
-          </div>
-          <div class="flag-item" :class="{ active: flags.Z }">
-            <span class="flag-name">Z</span>
-            <span class="flag-val">{{ flags.Z ? 1 : 0 }}</span>
-          </div>
-          <div class="flag-item" :class="{ active: flags.C }">
-            <span class="flag-name">C</span>
-            <span class="flag-val">{{ flags.C ? 1 : 0 }}</span>
-          </div>
-          <div class="flag-item" :class="{ active: flags.V }">
-            <span class="flag-name">V</span>
-            <span class="flag-val">{{ flags.V ? 1 : 0 }}</span>
-          </div>
-        </div>
-      </el-card>
 
-      <el-card class="box-card mt-4">
-        <template #header>
-          <div class="card-header">
-            <span>寄存器 (Registers)</span>
-            <el-tag size="small" type="info">R1 = R0 + 2</el-tag>
-          </div>
-        </template>
-        <el-table :data="registers" style="width: 100%" size="small" border :row-class-name="tableRowClassName">
-          <el-table-column prop="name" label="Register" width="100">
-            <template #default="scope">
-              <div class="register-name" :id="'reg-row-' + scope.row.name">
-                {{ scope.row.name }}
-                <el-icon v-if="scope.row.status === 'read'" class="status-icon read"><View /></el-icon>
-                <el-icon v-if="scope.row.status === 'write'" class="status-icon write"><Edit /></el-icon>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column prop="value" label="Value">
-            <template #default="scope">
-              <span :class="['value-display', scope.row.status]">
-                {{ scope.row.value }}
-              </span>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-card>
+    <!-- 可拖拽分隔条 -->
+    <div class="resize-handle" @mousedown="startResize"></div>
 
-      <el-card class="box-card mt-4">
-        <template #header>
-          <div class="card-header">
-            <span>内存 (Memory)</span>
+    <div class="right-panel" ref="rightPanelRef" :style="{ width: rightPanelWidth + 'px' }">
+      <!-- Flags Section -->
+      <div class="panel-section" :style="{ height: flagsHeight + 'px' }">
+        <el-card class="box-card full-card">
+          <template #header>
+            <div class="card-header"><span>Flags</span></div>
+          </template>
+          <div class="flags-container">
+            <div class="flag-item" :class="{ active: flags.N }">
+              <span class="flag-name">N</span>
+              <span class="flag-val">{{ flags.N ? 1 : 0 }}</span>
+            </div>
+            <div class="flag-item" :class="{ active: flags.Z }">
+              <span class="flag-name">Z</span>
+              <span class="flag-val">{{ flags.Z ? 1 : 0 }}</span>
+            </div>
+            <div class="flag-item" :class="{ active: flags.C }">
+              <span class="flag-name">C</span>
+              <span class="flag-val">{{ flags.C ? 1 : 0 }}</span>
+            </div>
+            <div class="flag-item" :class="{ active: flags.V }">
+              <span class="flag-name">V</span>
+              <span class="flag-val">{{ flags.V ? 1 : 0 }}</span>
+            </div>
           </div>
-        </template>
-        <div class="memory-grid">
-           <!-- 简化展示部分内存 -->
-           <div v-for="(val, index) in memory" :key="index" class="memory-cell">
-             <span class="addr">0x{{ index.toString(16).padStart(4, '0') }}:</span>
-             <span class="val">{{ val }}</span>
-           </div>
-        </div>
-      </el-card>
+        </el-card>
+      </div>
+
+      <div class="resize-handle-h" @mousedown.prevent="startVertResize('flags-registers', $event)"></div>
+
+      <!-- Registers Section (flex:1, fills remaining) -->
+      <div class="panel-section section-flex">
+        <el-card class="box-card full-card">
+          <template #header>
+            <div class="card-header">
+              <span>Registers</span>
+              <el-tag size="small" type="info">R1 = R0 + 2</el-tag>
+            </div>
+          </template>
+          <el-table :data="registers" style="width: 100%" size="small" border :row-class-name="tableRowClassName">
+            <el-table-column prop="name" label="Register" width="100">
+              <template #default="scope">
+                <div class="register-name" :id="'reg-row-' + scope.row.name">
+                  {{ scope.row.name }}
+                  <el-icon v-if="scope.row.status === 'read'" class="status-icon read"><View /></el-icon>
+                  <el-icon v-if="scope.row.status === 'write'" class="status-icon write"><Edit /></el-icon>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="value" label="Value">
+              <template #default="scope">
+                <span :class="['value-display', scope.row.status]">
+                  {{ scope.row.value }}
+                </span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </div>
+
+      <div class="resize-handle-h" @mousedown.prevent="startVertResize('registers-memory', $event)"></div>
+
+      <!-- Memory Section -->
+      <div class="panel-section" :style="{ height: memoryHeight + 'px' }">
+        <el-card class="box-card full-card">
+          <template #header>
+            <div class="card-header"><span>Memory</span></div>
+          </template>
+          <div class="memory-grid">
+            <div v-for="(val, index) in memory" :key="index" class="memory-cell">
+              <span class="addr">0x{{ index.toString(16).padStart(4, '0') }}:</span>
+              <span class="val">{{ val }}</span>
+            </div>
+          </div>
+        </el-card>
+      </div>
     </div>
+
+    <!-- 右边缘拖拽条 -->
+    <div class="resize-edge resize-edge-right" @mousedown.prevent="startEdgeResize('right', $event)"></div>
 
     <!-- Overlay Layer for Arrows (Moved to Container Level) -->
     <svg v-if="demoOverlay.show" class="overlay-svg">
@@ -110,22 +130,25 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
-import { PrismEditor } from 'vue-prism-editor'
-import 'vue-prism-editor/dist/prismeditor.min.css'
-import Prism from 'prismjs'
-import 'prismjs/themes/prism-tomorrow.css'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { VideoPlay, View, Edit } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
 const code = ref('\nMOV 1 r0\n\nADD 2 r0 r1\n')
 
-const lineCount = computed(() => {
-  return code.value.split('\n').length
+const codeLines = computed(() => {
+  return code.value.split('\n')
 })
 
-const highlighter = (code) => {
-  return Prism.highlight(code, Prism.languages.clike, 'clike')
+// 当前高亮行索引（0-based），对应 "ADD 2 r0 r1" 所在行
+const activeLineIndex = ref(3)
+
+// 存储每行 DOM 元素的引用
+const lineRefs = ref({})
+const setLineRef = (el, index) => {
+  if (el) {
+    lineRefs.value[index] = el
+  }
 }
 
 const registers = ref(
@@ -151,7 +174,102 @@ const archCanvas = ref(null)
 const leftPanelRef = ref(null)
 const rightPanelRef = ref(null)
 const demoContainerRef = ref(null)
-const activeLineRef = ref(null) 
+
+// ====== 拖拽调整面板尺寸 ======
+const rightPanelWidth = ref(350)
+const paddingLeft = ref(12)
+const paddingRight = ref(12)
+
+// 左面板：编辑器高度（代码行按内容自动 + 一些余量）
+const editorHeight = ref(180)
+// 右面板：Flags 区域高度、Memory 区域高度，Registers 用 flex:1
+const flagsHeight = ref(110)
+const memoryHeight = ref(200)
+
+// 通用拖拽状态
+let dragCtx = null
+
+const lockDrag = (cursor) => {
+  document.body.style.userSelect = 'none'
+  document.body.style.cursor = cursor
+}
+
+const unlockDrag = () => {
+  document.body.style.userSelect = ''
+  document.body.style.cursor = ''
+}
+
+// --- 水平拖拽（左右面板） ---
+const startResize = (e) => {
+  dragCtx = { type: 'col', startX: e.clientX, startValue: rightPanelWidth.value }
+  document.addEventListener('mousemove', onDrag)
+  document.addEventListener('mouseup', stopDrag)
+  lockDrag('col-resize')
+}
+
+// --- 垂直拖拽（上下组件） ---
+const startVertResize = (type, e) => {
+  let startValue
+  if (type === 'editor-canvas') startValue = editorHeight.value
+  else if (type === 'flags-registers') startValue = flagsHeight.value
+  else if (type === 'registers-memory') startValue = memoryHeight.value
+
+  dragCtx = { type, startY: e.clientY, startValue }
+  document.addEventListener('mousemove', onDrag)
+  document.addEventListener('mouseup', stopDrag)
+  lockDrag('row-resize')
+}
+
+// --- 边缘拖拽（左右边距） ---
+const startEdgeResize = (side, e) => {
+  dragCtx = {
+    type: side === 'left' ? 'edge-left' : 'edge-right',
+    startX: e.clientX,
+    startValue: side === 'left' ? paddingLeft.value : paddingRight.value
+  }
+  document.addEventListener('mousemove', onDrag)
+  document.addEventListener('mouseup', stopDrag)
+  lockDrag('col-resize')
+}
+
+// --- 统一拖拽处理 ---
+const onDrag = (e) => {
+  if (!dragCtx) return
+
+  if (dragCtx.type === 'edge-left') {
+    // 左边缘：向右拖增大 padding
+    const dx = e.clientX - dragCtx.startX
+    paddingLeft.value = Math.max(0, Math.min(300, dragCtx.startValue + dx))
+  } else if (dragCtx.type === 'edge-right') {
+    // 右边缘：向左拖增大 padding
+    const dx = e.clientX - dragCtx.startX
+    paddingRight.value = Math.max(0, Math.min(300, dragCtx.startValue - dx))
+  } else if (dragCtx.type === 'col') {
+    // 水平：调整右面板宽度
+    if (!demoContainerRef.value) return
+    const containerRect = demoContainerRef.value.getBoundingClientRect()
+    const newWidth = containerRect.right - e.clientX - paddingRight.value
+    rightPanelWidth.value = Math.max(180, Math.min(containerRect.width * 0.6, newWidth))
+  } else {
+    // 垂直：调整组件高度
+    const dy = e.clientY - dragCtx.startY
+    if (dragCtx.type === 'editor-canvas') {
+      editorHeight.value = Math.max(60, dragCtx.startValue + dy)
+    } else if (dragCtx.type === 'flags-registers') {
+      flagsHeight.value = Math.max(60, dragCtx.startValue + dy)
+    } else if (dragCtx.type === 'registers-memory') {
+      // 向下拖 → memory 变小
+      memoryHeight.value = Math.max(60, dragCtx.startValue - dy)
+    }
+  }
+}
+
+const stopDrag = () => {
+  dragCtx = null
+  document.removeEventListener('mousemove', onDrag)
+  document.removeEventListener('mouseup', stopDrag)
+  unlockDrag()
+}
 
 const demoOverlay = ref({
   show: false,
@@ -341,18 +459,22 @@ const updateOverlay = (targetType, targetValue, text) => {
     return
   }
   
-  // 1. Get Source Position (Active Line)
-  const activeLineEl = document.querySelector('.active-line')
+  // 1. Get Source Position (Active Line) - 使用行号元素精确定位
+  const activeLineEl = lineRefs.value[activeLineIndex.value]
   const containerEl = demoContainerRef.value
   
   if (!activeLineEl || !containerEl) return
   
-  const lineRect = activeLineEl.getBoundingClientRect()
+  // 获取行号元素（.line-number）作为箭头起点
+  const lineNumEl = activeLineEl.querySelector('.line-number')
+  if (!lineNumEl) return
+  
+  const numRect = lineNumEl.getBoundingClientRect()
   const containerRect = containerEl.getBoundingClientRect()
   
-  // Calculate relative to demo-container
-  const fromX = lineRect.right - containerRect.left + 5 // Start a bit to the right of line number
-  const fromY = lineRect.top - containerRect.top + lineRect.height / 2
+  // 箭头从行号右边缘出发（数字和代码中间）
+  const fromX = numRect.right - containerRect.left
+  const fromY = numRect.top - containerRect.top + numRect.height / 2
   
   let toX = 0, toY = 0
   
@@ -406,6 +528,11 @@ onMounted(() => {
   drawArchitecture(0)
 })
 
+onUnmounted(() => {
+  document.removeEventListener('mousemove', onDrag)
+  document.removeEventListener('mouseup', stopDrag)
+})
+
 const runDemo = async () => {
   if (isAnimating.value) return
   isAnimating.value = true
@@ -421,7 +548,7 @@ const runDemo = async () => {
   demoOverlay.value.show = false
   
   // Step 1: Fetch/Decode & Read
-  currentStepText.value = 'Step 1: 指令译码 & 读取操作数'
+  currentStepText.value = 'Step 1: Decode & Read Operands'
   const r0 = registers.value.find(r => r.name === 'R0')
   if (r0) r0.status = 'read'
   drawArchitecture(1)
@@ -433,7 +560,7 @@ const runDemo = async () => {
   await sleep(1500)
   
   // Step 2: ALU Execute
-  currentStepText.value = 'Step 2: ALU 执行 (1 + 2)'
+  currentStepText.value = 'Step 2: ALU Execution (1 + 2)'
   const result = 3
   flags.value.N = result < 0
   flags.value.Z = result === 0
@@ -444,7 +571,7 @@ const runDemo = async () => {
   await sleep(1500)
   
   // Step 3: Write Back
-  currentStepText.value = 'Step 3: 结果回写 (R1)'
+  currentStepText.value = 'Step 3: Write Back (R1)'
   if (r0) r0.status = '' 
   const r1 = registers.value.find(r => r.name === 'R1')
   if (r1) {
@@ -458,7 +585,7 @@ const runDemo = async () => {
   await sleep(1500)
   
   // Finish
-  currentStepText.value = '执行完成'
+  currentStepText.value = 'Execution Completed'
   if (r1) r1.status = ''
   drawArchitecture(0)
   demoOverlay.value.show = false
@@ -474,14 +601,59 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 .demo-container {
   display: flex;
   height: 100vh;
-  padding: 20px;
-  gap: 20px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  gap: 0;
   background-color: #f5f7fa;
-  position: relative; /* Anchor for Overlay */
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* 左右边缘拖拽条 */
+.resize-edge {
+  position: absolute;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 20;
+  transition: background-color 0.2s;
+}
+
+.resize-edge-left {
+  left: 0;
+}
+
+.resize-edge-right {
+  right: 0;
+}
+
+.resize-edge::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 40px;
+  background: #c0c4cc;
+  border-radius: 1px;
+  transition: height 0.2s, background-color 0.2s;
+}
+
+.resize-edge:hover {
+  background: rgba(64, 158, 255, 0.15);
+}
+
+.resize-edge:hover::after {
+  height: 60px;
+  background: #409eff;
 }
 
 .left-panel {
   flex: 1;
+  min-width: 0;
   background: #2d2d2d;
   color: #ccc;
   border-radius: 8px;
@@ -530,15 +702,13 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
 .editor-wrapper {
   display: flex;
-  flex: 1; 
-  min-height: 200px;
+  flex: none;
   overflow: auto;
-  font-family: 'Fira Code', monospace;
-  border-bottom: 1px solid #444;
 }
 
 .canvas-container {
-  height: 450px; 
+  flex: 1;
+  min-height: 0;
   background: #ffffff;
   display: flex;
   flex-direction: column;
@@ -559,63 +729,164 @@ canvas {
   object-fit: contain;
 }
 
-.line-numbers {
+.code-lines {
+  flex: 1;
   padding: 10px 0;
-  background: #1e1e1e;
-  border-right: 1px solid #444;
-  text-align: right;
-  min-width: 40px;
-  user-select: none;
-  color: #888;
+  background: #2d2d2d;
 }
 
-.line-numbers div {
-  padding: 0 10px;
-  height: 24px;
-  line-height: 24px;
+.code-line {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  line-height: 28px;
+  font-family: 'Fira Code', 'Consolas', monospace;
   font-size: 14px;
+  transition: background-color 0.3s;
+  cursor: default;
 }
 
-.active-line {
+.code-line:hover {
+  background-color: #333842;
+}
+
+.code-line.active-line {
   background-color: #3e4451;
+}
+
+.code-line.active-line .line-number {
   color: #fff;
   font-weight: bold;
 }
 
-.my-editor {
-  background: #2d2d2d;
-  color: #ccc;
-  font-family: 'Fira Code', monospace;
-  font-size: 14px;
-  line-height: 24px;
-  padding: 10px;
-  flex: 1;
+.code-line.active-line .line-content {
+  color: #e5c07b;
+  font-weight: bold;
 }
 
-/* Override prism editor styles */
-:deep(.prism-editor__textarea) {
-  outline: none;
+.line-number {
+  display: inline-block;
+  min-width: 40px;
+  padding: 0 10px;
+  text-align: right;
+  color: #636d83;
+  user-select: none;
+  background: #1e1e1e;
+  border-right: 1px solid #444;
+  flex-shrink: 0;
 }
-:deep(.prism-editor__editor) {
-  white-space: pre !important;
+
+.line-content {
+  padding: 0 12px;
+  color: #abb2bf;
+  white-space: pre;
+  cursor: default;
+}
+
+/* 可拖拽分隔条 */
+.resize-handle {
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  flex-shrink: 0;
+  z-index: 10;
+  transition: background-color 0.2s;
+}
+
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 40px;
+  background: #c0c4cc;
+  border-radius: 1px;
+  transition: height 0.2s, background-color 0.2s;
+}
+
+.resize-handle:hover {
+  background: rgba(64, 158, 255, 0.1);
+}
+
+.resize-handle:hover::after {
+  height: 60px;
+  background: #409eff;
 }
 
 .right-panel {
-  width: 350px;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  overflow: hidden;
 }
 
-.mt-4 {
-  margin-top: 16px;
+/* 面板区域通用 */
+.panel-section {
+  flex: none;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Registers 区域弹性填充 */
+.panel-section.section-flex {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 卡片填满 section */
+.full-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.full-card :deep(.el-card__body) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* 水平分隔条（上下拖拽） */
+.resize-handle-h {
+  height: 6px;
+  cursor: row-resize;
+  background: transparent;
+  position: relative;
+  flex-shrink: 0;
+  z-index: 10;
+  transition: background-color 0.2s;
+}
+
+.resize-handle-h::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  height: 2px;
+  width: 40px;
+  background: #c0c4cc;
+  border-radius: 1px;
+  transition: width 0.2s, background-color 0.2s;
+}
+
+.resize-handle-h:hover {
+  background: rgba(64, 158, 255, 0.1);
+}
+
+.resize-handle-h:hover::after {
+  width: 60px;
+  background: #409eff;
 }
 
 /* Flags Styles */
 .flags-container {
   display: flex;
   justify-content: space-around;
-  padding: 10px 0;
+  padding: 4px 0;
 }
 
 .flag-item {
@@ -623,11 +894,19 @@ canvas {
   flex-direction: column;
   align-items: center;
   background: #f0f2f5;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-radius: 4px;
   width: 40px;
   border: 1px solid #dcdfe6;
   transition: all 0.3s;
+}
+
+/* 紧凑卡片头 */
+:deep(.el-card__header) {
+  padding: 8px 12px;
+}
+:deep(.el-card__body) {
+  padding: 8px 12px;
 }
 
 .flag-item.active {

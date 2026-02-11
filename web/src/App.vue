@@ -13,7 +13,9 @@ import {RouterLink, RouterView} from 'vue-router'
         </div>
       </div>
       <nav class="nav">
-        <RouterLink to="/">Home</RouterLink>
+        <RouterLink to="/" exact-active-class="nav-active">Home</RouterLink>
+        <RouterLink to="/project" active-class="nav-active">Project</RouterLink>
+        <RouterLink to="/config" active-class="nav-active">Config</RouterLink>
       </nav>
     </header>
 
@@ -65,12 +67,29 @@ import {RouterLink, RouterView} from 'vue-router'
   font-size: 13px;
 }
 
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .nav a {
-  color: #2563eb;
+  color: #4b5563;
   font-weight: 600;
+  font-size: 14px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: background-color 0.2s, color 0.2s;
 }
 
 .nav a:hover {
-  text-decoration: underline;
+  background-color: #f3f4f6;
+  color: #2563eb;
+}
+
+.nav a.nav-active {
+  background-color: #eff6ff;
+  color: #2563eb;
 }
 </style>

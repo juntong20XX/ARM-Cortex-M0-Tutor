@@ -8,10 +8,18 @@
 
 ## 文件架构
 
-`__init__.py`
+- `__main__.py`
 
-`__main__.py`
+- `app.py`
+  - 启动后端
 
-`settings.py`
+- `apis/`
+  - 构建 `api_router: fastapi.APIRouter` 对象
 
-`database/`
+- `core/`
+  - Network-independent tools. 
+
+- `database/`
+
+- `services/`
+  - Network-dependent tools.

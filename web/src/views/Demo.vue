@@ -98,12 +98,32 @@
       <div class="panel-section" :style="{ height: memoryHeight + 'px' }">
         <el-card class="box-card full-card">
           <template #header>
-            <div class="card-header"><span>Memory</span></div>
+            <div class="card-header">
+              <span>Memory</span>
+              <div class="memory-range-controls">
+                <span class="range-label">Start:</span>
+                <el-input
+                  v-model="memoryViewStartHex"
+                  size="small"
+                  class="memory-addr-input"
+                  placeholder="0x0000"
+                  maxlength="6"
+                  @blur="applyMemoryViewStart"
+                  @keyup.enter="applyMemoryViewStart"
+                />
+                <span class="range-label">Count:</span>
+                <el-select v-model="memoryViewCount" size="small" class="memory-count-select">
+                  <el-option label="8" :value="8" />
+                  <el-option label="16" :value="16" />
+                  <el-option label="32" :value="32" />
+                </el-select>
+              </div>
+            </div>
           </template>
           <div class="memory-grid">
-            <div v-for="(val, index) in memory" :key="index" class="memory-cell">
-              <span class="addr">0x{{ index.toString(16).padStart(4, '0') }}:</span>
-              <span class="val">{{ val }}</span>
+            <div v-for="item in displayedMemory" :key="item.addr" class="memory-cell">
+              <span class="addr">0x{{ item.addr.toString(16).padStart(4, '0') }}:</span>
+              <span class="val">{{ item.value }}</span>
             </div>
           </div>
         </el-card>
@@ -128,7 +148,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { VideoPlay, View, Edit } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
@@ -168,7 +188,7 @@ const setLineRef = (el, index) => {
 }
 
 const registers = ref(
-  Array.from({ length: 14 }, (_, i) => ({
+  Array.from({ length: 16 }, (_, i) => ({
     name: `R${i}`,
     value: i === 0 ? 1 : 0,
     status: '' // 'read' | 'write' | ''
@@ -183,7 +203,39 @@ const flags = ref({
   V: false  // Overflow
 })
 
-const memory = ref(Array(16).fill(0))
+// 内存：64KB 后备存储，视图可指定起始地址与显示条数
+const MEMORY_SIZE = 0x10000
+const memoryStore = ref(Array(MEMORY_SIZE).fill(0))
+const memoryViewStart = ref(0)
+const memoryViewCount = ref(16)
+const memoryViewStartHex = ref('0x0000')
+
+function applyMemoryViewStart() {
+  const s = memoryViewStartHex.value.trim().toLowerCase()
+  const hex = s.startsWith('0x') ? s.slice(2) : s
+  if (!/^[0-9a-f]+$/.test(hex)) return
+  const num = parseInt(hex, 16)
+  if (isNaN(num)) return
+  const clamped = Math.max(0, Math.min(MEMORY_SIZE - 1, num))
+  memoryViewStart.value = clamped
+  memoryViewStartHex.value = '0x' + clamped.toString(16).padStart(4, '0').toUpperCase()
+}
+
+const displayedMemory = computed(() => {
+  const start = memoryViewStart.value
+  const count = memoryViewCount.value
+  const end = Math.min(start + count, MEMORY_SIZE)
+  const list = []
+  for (let addr = start; addr < end; addr++) {
+    list.push({ addr, value: memoryStore.value[addr] })
+  }
+  return list
+})
+
+// 同步 memoryViewStart 变化到 hex 输入框（外部修改 start 时）
+watch(memoryViewStart, (v) => {
+  memoryViewStartHex.value = '0x' + v.toString(16).padStart(4, '0').toUpperCase()
+}, { immediate: true })
 const isAnimating = ref(false)
 const currentStepText = ref('')
 const archCanvas = ref(null)
@@ -1051,6 +1103,33 @@ canvas {
   font-weight: bold;
   transform: scale(1.1);
   box-shadow: 0 0 8px rgba(103, 194, 58, 0.5);
+}
+
+.card-header:has(.memory-range-controls) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.memory-range-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.memory-range-controls .range-label {
+  font-size: 12px;
+  color: #909399;
+}
+.memory-range-controls .memory-addr-input {
+  width: 72px;
+}
+.memory-range-controls .memory-addr-input .el-input__inner {
+  font-family: monospace;
+  font-size: 12px;
+}
+.memory-range-controls .memory-count-select {
+  width: 56px;
 }
 
 .memory-grid {

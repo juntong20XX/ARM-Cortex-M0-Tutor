@@ -19,7 +19,9 @@ import {RouterLink, RouterView} from 'vue-router'
       </nav>
     </header>
 
-    <RouterView/>
+    <div class="app-view">
+      <RouterView/>
+    </div>
   </div>
 </template>
 
@@ -28,6 +30,16 @@ import {RouterLink, RouterView} from 'vue-router'
   display: flex;
   flex-direction: column;
   gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+.app-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
 }
 
 .app-header {

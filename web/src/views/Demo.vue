@@ -21,6 +21,7 @@
           >
             <span class="line-number">{{ index + 1 }}</span>
             <label class="line-content">{{ line || '\u00A0' }}</label>
+            <span class="line-addr">{{ codeLineAddresses[index] }}</span>
           </div>
         </div>
       </div>
@@ -73,24 +74,21 @@
               <el-tag size="small" type="info">R1 = R0 + 2</el-tag>
             </div>
           </template>
-          <el-table :data="registers" style="width: 100%" size="small" border :row-class-name="tableRowClassName">
-            <el-table-column prop="name" label="Register" width="100">
-              <template #default="scope">
-                <div class="register-name" :id="'reg-row-' + scope.row.name">
-                  {{ scope.row.name }}
-                  <el-icon v-if="scope.row.status === 'read'" class="status-icon read"><View /></el-icon>
-                  <el-icon v-if="scope.row.status === 'write'" class="status-icon write"><Edit /></el-icon>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column prop="value" label="Value">
-              <template #default="scope">
-                <span :class="['value-display', scope.row.status]">
-                  {{ scope.row.value }}
-                </span>
-              </template>
-            </el-table-column>
-          </el-table>
+          <div class="registers-grid">
+            <div
+              v-for="reg in registers"
+              :key="reg.name"
+              class="register-cell"
+              :class="{ 'row-read': reg.status === 'read', 'row-write': reg.status === 'write' }"
+            >
+              <div class="register-name" :id="'reg-row-' + reg.name">
+                {{ reg.name }}
+                <el-icon v-if="reg.status === 'read'" class="status-icon read"><View /></el-icon>
+                <el-icon v-if="reg.status === 'write'" class="status-icon write"><Edit /></el-icon>
+              </div>
+              <span :class="['value-display', reg.status]">{{ reg.value }}</span>
+            </div>
+          </div>
         </el-card>
       </div>
 
@@ -140,6 +138,24 @@ const codeLines = computed(() => {
   return code.value.split('\n')
 })
 
+// 每行代码对应的指令地址（Thumb 每条指令 2 字节，仅对非空行分配）
+const CODE_BASE = 0x0000
+const codeLineAddresses = computed(() => {
+  const lines = codeLines.value
+  const addrs = []
+  let addr = CODE_BASE
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim()
+    if (trimmed) {
+      addrs[i] = '0x' + addr.toString(16).padStart(4, '0').toUpperCase()
+      addr += 2
+    } else {
+      addrs[i] = ''
+    }
+  }
+  return addrs
+})
+
 // 当前高亮行索引（0-based），对应 "ADD 2 r0 r1" 所在行
 const activeLineIndex = ref(3)
 
@@ -180,9 +196,12 @@ const rightPanelWidth = ref(350)
 const paddingLeft = ref(12)
 const paddingRight = ref(12)
 
-// 左面板：编辑器高度（代码行按内容自动 + 一些余量）
+// 左面板：编辑器与画布初始比例 3:2，首次加载时按左面板高度计算
+const EDITOR_CANVAS_RATIO = [3, 2]
 const editorHeight = ref(180)
-// 右面板：Flags 区域高度、Memory 区域高度，Registers 用 flex:1
+// 右面板：Flags / Registers / Memory 默认比例 1:3:2，首次加载时按右面板高度计算
+const FLAGS_REGISTERS_MEMORY_RATIO = [1, 3, 2]
+const RESIZE_HANDLE_H = 6
 const flagsHeight = ref(110)
 const memoryHeight = ref(200)
 
@@ -288,15 +307,6 @@ const arrowPath = computed(() => {
   
   return `M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}`
 })
-
-const tableRowClassName = ({ row }) => {
-  if (row.status === 'read') {
-    return 'row-read'
-  } else if (row.status === 'write') {
-    return 'row-write'
-  }
-  return ''
-}
 
 // Architecture Layout Constants (Scaled Up)
 const LAYOUT = {
@@ -524,8 +534,43 @@ const updateOverlay = (targetType, targetValue, text) => {
   }
 }
 
+function applyLeftPanelRatioHeights() {
+  const el = leftPanelRef.value
+  if (!el) return
+  const toolbar = el.querySelector('.toolbar')
+  const toolbarH = toolbar ? toolbar.getBoundingClientRect().height : 48
+  const total = el.clientHeight - toolbarH - RESIZE_HANDLE_H
+  if (total <= 0) return
+  const sum = EDITOR_CANVAS_RATIO[0] + EDITOR_CANVAS_RATIO[1]
+  const part = total / sum
+  editorHeight.value = Math.max(60, Math.round(part * EDITOR_CANVAS_RATIO[0]))
+}
+
+function applyRightPanelRatioHeights() {
+  const el = rightPanelRef.value
+  if (!el) return
+  const total = el.clientHeight - 2 * RESIZE_HANDLE_H
+  if (total <= 0) return
+  const sum = FLAGS_REGISTERS_MEMORY_RATIO[0] + FLAGS_REGISTERS_MEMORY_RATIO[1] + FLAGS_REGISTERS_MEMORY_RATIO[2]
+  const part = total / sum
+  flagsHeight.value = Math.max(60, Math.round(part * FLAGS_REGISTERS_MEMORY_RATIO[0]))
+  memoryHeight.value = Math.max(60, Math.round(part * FLAGS_REGISTERS_MEMORY_RATIO[2]))
+  // Registers 占 3 份，由 flex:1 自动填充
+}
+
 onMounted(() => {
   drawArchitecture(0)
+  let retries = 0
+  const maxRetries = 25
+  const tryApply = () => {
+    const rightEl = rightPanelRef.value
+    const leftEl = leftPanelRef.value
+    if (rightEl?.clientHeight > 0) applyRightPanelRatioHeights()
+    if (leftEl?.clientHeight > 0) applyLeftPanelRatioHeights()
+    if (rightEl?.clientHeight > 0) return
+    if (retries++ < maxRetries) setTimeout(tryApply, 80)
+  }
+  nextTick().then(() => requestAnimationFrame(tryApply))
 })
 
 onUnmounted(() => {
@@ -600,7 +645,8 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 <style scoped>
 .demo-container {
   display: flex;
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
   padding-top: 12px;
   padding-bottom: 12px;
   gap: 0;
@@ -764,6 +810,11 @@ canvas {
   font-weight: bold;
 }
 
+.code-line.active-line .line-addr {
+  color: #e5c07b;
+  font-weight: bold;
+}
+
 .line-number {
   display: inline-block;
   min-width: 40px;
@@ -781,6 +832,20 @@ canvas {
   color: #abb2bf;
   white-space: pre;
   cursor: default;
+  flex: 1;
+  min-width: 0;
+}
+
+.line-addr {
+  flex-shrink: 0;
+  min-width: 56px;
+  padding: 0 10px;
+  text-align: right;
+  color: #636d83;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  border-left: 1px solid #444;
+  background: #252526;
 }
 
 /* 可拖拽分隔条 */
@@ -926,11 +991,38 @@ canvas {
   font-family: monospace;
 }
 
-/* Register Table Styles */
-.register-name {
+/* Registers 两列网格 */
+.registers-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 10px;
+}
+
+.register-cell {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #ebeef5;
+  background: #fafafa;
+  transition: all 0.3s ease;
+}
+
+.register-cell.row-read {
+  background-color: rgba(230, 162, 60, 0.08);
+  border-color: rgba(230, 162, 60, 0.3);
+}
+
+.register-cell.row-write {
+  background-color: rgba(103, 194, 58, 0.08);
+  border-color: rgba(103, 194, 58, 0.3);
+}
+
+.register-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .status-icon {
@@ -959,14 +1051,6 @@ canvas {
   font-weight: bold;
   transform: scale(1.1);
   box-shadow: 0 0 8px rgba(103, 194, 58, 0.5);
-}
-
-/* Element Plus Table Row Highlights */
-:deep(.el-table .row-read) {
-  background-color: rgba(230, 162, 60, 0.05) !important;
-}
-:deep(.el-table .row-write) {
-  background-color: rgba(103, 194, 58, 0.05) !important;
 }
 
 .memory-grid {

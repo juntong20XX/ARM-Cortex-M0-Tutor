@@ -1,0 +1,209 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://arm-cortex-m0-tutor/adl/v1",
+  "title": "ADL v1 - Animation Description Language",
+  "description": "Schema for trace + animation events driven by backend",
+  "adlVersion": 1,
+
+  "definitions": {
+    "AnchorRef": {
+      "oneOf": [
+        { "$ref": "#/definitions/CodeLineAddrAnchor" },
+        { "$ref": "#/definitions/PCAnchor" },
+        { "$ref": "#/definitions/RegisterRowAnchor" },
+        { "$ref": "#/definitions/CanvasComponentAnchor" }
+      ]
+    },
+    "CodeLineAddrAnchor": {
+      "type": "object",
+      "required": ["kind", "lineIndex"],
+      "properties": {
+        "kind": { "const": "CodeLineAddr" },
+        "lineIndex": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "PCAnchor": {
+      "type": "object",
+      "required": ["kind", "pc"],
+      "properties": {
+        "kind": { "const": "PC" },
+        "pc": { "type": "string", "pattern": "^0x[0-9a-fA-F]+$" }
+      }
+    },
+    "RegisterRowAnchor": {
+      "type": "object",
+      "required": ["kind", "reg"],
+      "properties": {
+        "kind": { "const": "RegisterRow" },
+        "reg": { "type": "string", "pattern": "^[rR][0-9]+$" }
+      }
+    },
+    "CanvasComponentAnchor": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "const": "CanvasComponent" },
+        "id": { "enum": ["CU", "REG", "ALU"] }
+      }
+    },
+
+    "ADLEvent": {
+      "oneOf": [
+        { "$ref": "#/definitions/SetActiveLineEvent" },
+        { "$ref": "#/definitions/FocusCanvasEvent" },
+        { "$ref": "#/definitions/MarkRegisterEvent" },
+        { "$ref": "#/definitions/OverlayArrowEvent" },
+        { "$ref": "#/definitions/AnnotateBusEvent" },
+        { "$ref": "#/definitions/WaitEvent" }
+      ]
+    },
+    "SetActiveLineEvent": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "const": "SetActiveLine" },
+        "by": { "enum": ["pc", "index"] },
+        "value": {}
+      }
+    },
+    "FocusCanvasEvent": {
+      "type": "object",
+      "required": ["type", "target"],
+      "properties": {
+        "type": { "const": "FocusCanvas" },
+        "target": { "enum": ["CU", "REG", "ALU", "None"] }
+      }
+    },
+    "MarkRegisterEvent": {
+      "type": "object",
+      "required": ["type", "reg", "mode"],
+      "properties": {
+        "type": { "const": "MarkRegister" },
+        "reg": { "type": "string" },
+        "mode": { "enum": ["read", "write", "clear"] }
+      }
+    },
+    "OverlayArrowEvent": {
+      "type": "object",
+      "required": ["type", "from", "to", "text"],
+      "properties": {
+        "type": { "const": "OverlayArrow" },
+        "from": { "$ref": "#/definitions/AnchorRef" },
+        "to": { "$ref": "#/definitions/AnchorRef" },
+        "text": { "type": "string" }
+      }
+    },
+    "AnnotateBusEvent": {
+      "type": "object",
+      "required": ["type", "text", "at"],
+      "properties": {
+        "type": { "const": "AnnotateBus" },
+        "text": { "type": "string" },
+        "at": { "enum": ["aluInputA", "aluInputB", "writeback"] }
+      }
+    },
+    "WaitEvent": {
+      "type": "object",
+      "required": ["type", "ms"],
+      "properties": {
+        "type": { "const": "Wait" },
+        "ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+
+    "RegistersSnapshot": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "r0..r15 hex values e.g. 0x0"
+    },
+    "FlagsSnapshot": {
+      "type": "object",
+      "required": ["N", "Z", "C", "V"],
+      "properties": {
+        "N": { "enum": [0, 1] },
+        "Z": { "enum": [0, 1] },
+        "C": { "enum": [0, 1] },
+        "V": { "enum": [0, 1] }
+      }
+    },
+    "MemoryDelta": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 255 },
+      "description": "address (hex string) -> byte value. Unit: byte."
+    },
+    "StepSnapshot": {
+      "type": "object",
+      "required": ["pc", "lineCounter", "registers", "flags"],
+      "properties": {
+        "pc": { "type": "string" },
+        "lineCounter": { "type": "integer" },
+        "activeInstructionIndex": { "type": "integer" },
+        "registers": { "$ref": "#/definitions/RegistersSnapshot" },
+        "flags": { "$ref": "#/definitions/FlagsSnapshot" },
+        "memoryDelta": { "$ref": "#/definitions/MemoryDelta" }
+      }
+    },
+    "CodeLine": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "addr": { "type": "string" }
+      }
+    },
+    "DisassemblyEntry": {
+      "type": "object",
+      "properties": {
+        "address": { "type": "string" },
+        "basic": { "type": "string" },
+        "condition": { "type": "string" },
+        "param": { "type": "object" },
+        "param_1": { "type": "object" },
+        "param_2": { "type": "object" }
+      }
+    },
+    "InitialState": {
+      "type": "object",
+      "properties": {
+        "registers": { "$ref": "#/definitions/RegistersSnapshot" },
+        "flags": { "$ref": "#/definitions/FlagsSnapshot" },
+        "memoryDelta": { "$ref": "#/definitions/MemoryDelta" }
+      }
+    },
+    "TraceStep": {
+      "type": "object",
+      "required": ["snapshot", "events"],
+      "properties": {
+        "snapshot": { "$ref": "#/definitions/StepSnapshot" },
+        "events": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/ADLEvent" }
+        }
+      }
+    }
+  },
+
+  "type": "object",
+  "required": ["adlVersion", "steps"],
+  "properties": {
+    "adlVersion": { "type": "integer", "const": 1 },
+    "code": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/CodeLine" }
+    },
+    "disassembly": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "address": { "type": "string" },
+          "line": { "$ref": "#/definitions/DisassemblyEntry" }
+        }
+      }
+    },
+    "initialState": { "$ref": "#/definitions/InitialState" },
+    "steps": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/TraceStep" }
+    }
+  }
+}

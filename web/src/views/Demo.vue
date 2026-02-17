@@ -173,10 +173,13 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { VideoPlay, View, Edit } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import { playTrace } from '@/animation/tracePlayer'
+import { ADL_VERSION } from '@/animation/adl-types'
+import type { TraceResponse, StepSnapshot, AnchorRef } from '@/animation/adl-types'
 
 const code = ref('\nMOV 1 r0\n\nADD 2 r0 r1\n')
 
@@ -403,6 +406,115 @@ const LAYOUT = {
   CU: { x: 60, y: 150, w: 140, h: 120 },
   REG: { x: 350, y: 50, w: 260, h: 80 },
   ALU: { x: 480, y: 280, size: 80 }
+}
+
+// Resolve ADL AnchorRef to container-relative { x, y } for overlay
+function resolveAnchor(anchor: AnchorRef): { x: number; y: number } | null {
+  const containerEl = demoContainerRef.value
+  if (!containerEl) return null
+  const containerRect = containerEl.getBoundingClientRect()
+
+  if (anchor.kind === 'CodeLineAddr') {
+    const lineEl = lineRefs.value[anchor.lineIndex]
+    if (!lineEl) return null
+    const addrEl = lineEl.querySelector('.line-addr')
+    if (!addrEl) return null
+    const r = addrEl.getBoundingClientRect()
+    return {
+      x: r.left - containerRect.left,
+      y: r.top - containerRect.top + r.height / 2
+    }
+  }
+  if (anchor.kind === 'RegisterRow') {
+    const el = document.getElementById(`reg-row-${anchor.reg}`)
+    if (!el) return null
+    const r = el.getBoundingClientRect()
+    return {
+      x: r.left - containerRect.left,
+      y: r.top - containerRect.top + r.height / 2
+    }
+  }
+  if (anchor.kind === 'CanvasComponent') {
+    const canvasEl = archCanvas.value
+    if (!canvasEl) return null
+    const canvasRect = canvasEl.getBoundingClientRect()
+    const scaleX = canvasRect.width / 800
+    const scaleY = canvasRect.height / 450
+    const layout = LAYOUT[anchor.id]
+    if (!layout) return null
+    const cx = 'size' in layout ? layout.x : layout.x + (layout.w ?? 0) / 2
+    const cy = 'size' in layout ? layout.y + layout.size / 2 : layout.y + (layout.h ?? 0) / 2
+    return {
+      x: canvasRect.left - containerRect.left + cx * scaleX,
+      y: canvasRect.top - containerRect.top + cy * scaleY
+    }
+  }
+  if (anchor.kind === 'PC') {
+    const idx = codeLineAddresses.value.findIndex(addr => (addr || '').toLowerCase() === anchor.pc.toLowerCase())
+    if (idx >= 0) return resolveAnchor({ kind: 'CodeLineAddr', lineIndex: idx })
+    return null
+  }
+  return null
+}
+
+// Canvas focus state for ADL (0=none, 1=CU/REG, 2=ALU, 3=writeback)
+const canvasFocusStep = ref(0)
+function setCanvasFocusStep(target: 'CU' | 'REG' | 'ALU' | 'None') {
+  if (target === 'None') canvasFocusStep.value = 0
+  else if (target === 'ALU') canvasFocusStep.value = 2
+  else canvasFocusStep.value = 1
+  drawArchitecture(canvasFocusStep.value)
+}
+
+function applySnapshotToUI(snapshot: StepSnapshot) {
+  const regMap = snapshot.registers || {}
+  registers.value.forEach(r => {
+    const key = r.name.toLowerCase()
+    const val = regMap[key] ?? regMap[r.name]
+    if (val !== undefined) {
+      const num = typeof val === 'string' && /^0x[0-9a-fA-F]+$/.test(val) ? parseInt(val, 16) : Number(val)
+      r.value = isNaN(num) ? 0 : num
+    }
+    r.status = ''
+  })
+  const f = snapshot.flags || { N: 0, Z: 0, C: 0, V: 0 }
+  flags.value = { N: !!f.N, Z: !!f.Z, C: !!f.C, V: !!f.V }
+  if (snapshot.memoryDelta && memoryStore.value) {
+    for (const [addrStr, byteVal] of Object.entries(snapshot.memoryDelta)) {
+      const addr = parseInt(addrStr.replace(/^0x/, ''), 16)
+      if (!isNaN(addr) && addr >= 0 && addr < MEMORY_SIZE) memoryStore.value[addr] = byteVal & 0xff
+    }
+  }
+}
+
+function createTraceDriver() {
+  return {
+    applySnapshot(snapshot: StepSnapshot) {
+      applySnapshotToUI(snapshot)
+    },
+    setActiveLine(index: number) {
+      activeLineIndex.value = index
+    },
+    setCanvasFocus(target: 'CU' | 'REG' | 'ALU' | 'None') {
+      setCanvasFocusStep(target)
+    },
+    markRegister(reg: string, mode: 'read' | 'write' | 'clear') {
+      const r = registers.value.find(x => x.name.toUpperCase() === reg.toUpperCase())
+      if (r) r.status = mode === 'clear' ? '' : mode
+    },
+    setOverlay(from: AnchorRef, to: AnchorRef, text: string) {
+      const fromPos = resolveAnchor(from)
+      const toPos = resolveAnchor(to)
+      if (fromPos && toPos) {
+        demoOverlay.value = { show: true, from: fromPos, to: toPos, text }
+      } else {
+        demoOverlay.value.show = false
+      }
+    },
+    wait(ms: number): Promise<void> {
+      return new Promise(resolve => setTimeout(resolve, ms))
+    }
+  }
 }
 
 // Canvas Drawing Logic
@@ -676,73 +788,132 @@ onUnmounted(() => {
   document.removeEventListener('mouseup', stopDrag)
 })
 
-const runDemo = async () => {
-  if (isAnimating.value) return
-  isAnimating.value = true
-  
-  registers.value.forEach(r => r.status = '')
-  registers.value[1].value = 0 
-  
-  // Reset Flags
-  flags.value = { N: false, Z: false, C: false, V: false }
+// Mock trace for when backend is not available (ADL-driven demo)
+const MOCK_TRACE = {
+  adlVersion: ADL_VERSION,
+  code: [
+    { text: '', addr: '0x0000' },
+    { text: 'MOV 1 r0', addr: '0x0000' },
+    { text: '', addr: '' },
+    { text: 'ADD 2 r0 r1', addr: '0x0006' }
+  ],
+  initialState: {
+    registers: { r0: '0x1', r1: '0x0', r2: '0x0', r3: '0x0', r4: '0x0', r5: '0x0', r6: '0x0', r7: '0x0', r8: '0x0', r9: '0x0', r10: '0x0', r11: '0x0', r12: '0x0', r13: '0x0', r14: '0x0', r15: '0x0' },
+    flags: { N: 0, Z: 0, C: 0, V: 0 }
+  },
+  steps: [
+    {
+      snapshot: { pc: '0x0006', lineCounter: 3, registers: { r0: '0x1', r1: '0x0' }, flags: { N: 0, Z: 0, C: 0, V: 0 } },
+      events: [
+        { type: 'SetActiveLine', by: 'index', value: 3 },
+        { type: 'FocusCanvas', target: 'CU' },
+        { type: 'OverlayArrow', from: { kind: 'CodeLineAddr', lineIndex: 3 }, to: { kind: 'CanvasComponent', id: 'CU' }, text: 'Decode: ADD #2, R0 → R1' },
+        { type: 'MarkRegister', reg: 'R0', mode: 'read' },
+        { type: 'OverlayArrow', from: { kind: 'CodeLineAddr', lineIndex: 3 }, to: { kind: 'RegisterRow', reg: 'R0' }, text: 'Read R0 = 1' },
+        { type: 'Wait', ms: 1000 }
+      ]
+    },
+    {
+      snapshot: { pc: '0x0008', lineCounter: 3, registers: { r0: '0x1', r1: '0x3' }, flags: { N: 0, Z: 0, C: 0, V: 0 } },
+      events: [
+        { type: 'FocusCanvas', target: 'ALU' },
+        { type: 'OverlayArrow', from: { kind: 'CanvasComponent', id: 'ALU' }, to: { kind: 'RegisterRow', reg: 'R1' }, text: 'ALU: 1 + 2 = 3' },
+        { type: 'MarkRegister', reg: 'R0', mode: 'clear' },
+        { type: 'MarkRegister', reg: 'R1', mode: 'write' },
+        { type: 'Wait', ms: 1000 }
+      ]
+    }
+  ]
+} as TraceResponse
 
-  // Step 0: Reset
+async function fetchTrace(): Promise<TraceResponse | null> {
+  try {
+    const res = await fetch('/api/trace', { method: 'GET', credentials: 'include' })
+    if (!res.ok) return null
+    const data = await res.json()
+    if (data?.adlVersion === ADL_VERSION && Array.isArray(data?.steps)) return data
+    return null
+  } catch {
+    return null
+  }
+}
+
+async function runTraceAnimation(trace: TraceResponse) {
+  isAnimating.value = true
+  if (trace.initialState) applySnapshotToUI({ pc: '', lineCounter: 0, registers: trace.initialState.registers || {}, flags: trace.initialState.flags || { N: 0, Z: 0, C: 0, V: 0 } })
+  if (trace.code && trace.code.length) {
+    code.value = trace.code.map(c => c.text).join('\n')
+    await nextTick()
+  }
   drawArchitecture(0)
   demoOverlay.value.show = false
-  
-  // Step 1: Decode 指令（仅控制单元工作）
+  const driver = createTraceDriver()
+  await playTrace(trace, { driver, speed: 1 })
+  currentStepText.value = 'Execution Completed'
+  drawArchitecture(0)
+  demoOverlay.value.show = false
+  isAnimating.value = false
+  setTimeout(() => { currentStepText.value = '' }, 2000)
+}
+
+const runDemo = async () => {
+  if (isAnimating.value) return
+  const trace = await fetchTrace()
+  if (trace) {
+    await runTraceAnimation(trace)
+  } else {
+    await runDemoFallback()
+  }
+}
+
+async function runDemoFallback() {
+  if (isAnimating.value) return
+  isAnimating.value = true
+
+  registers.value.forEach(r => { r.status = '' })
+  registers.value[1].value = 0
+  flags.value = { N: false, Z: false, C: false, V: false }
+
+  drawArchitecture(0)
+  demoOverlay.value.show = false
+
   currentStepText.value = 'Step 1: Decode instruction (Control Unit)'
   const r0 = registers.value.find(r => r.name === 'R0')
   const r1 = registers.value.find(r => r.name === 'R1')
   drawArchitecture(1)
   await nextTick()
-  // 从代码行指向控制单元，说明正在解析 ADD #2, R0 -> R1
   updateOverlay('CANVAS', 'CU', 'Decode: ADD #2, R0 → R1')
   await sleep(1200)
 
-  // Step 2: Read 操作数 R0
   currentStepText.value = 'Step 2: Read operand R0'
   if (r0) r0.status = 'read'
   drawArchitecture(1)
-  
-  // Arrow: Code -> R0 (in Table)，并明确当前数值
   await nextTick()
-  updateOverlay('REGISTER', 'R0', `Read R0 = ${r0 ? r0.value : '? '}`)
-  
+  updateOverlay('REGISTER', 'R0', `Read R0 = ${r0 ? r0.value : '?'}`)
   await sleep(1200)
-  
-  // Step 3: ALU 执行，加法 1 + 2
+
   currentStepText.value = 'Step 3: ALU Execution (R0 + #2)'
-  const result = 3
+  const result: number = 3
   flags.value.N = result < 0
   flags.value.Z = result === 0
-  
   drawArchitecture(2)
-  // 从代码指向 ALU，文字说明数据流：R0=1, imm=2, result=3
   updateOverlay('CANVAS', 'ALU', 'ALU: 1 + 2 = 3')
-  
   await sleep(1200)
-  
-  // Step 4: 写回结果到 R1
+
   currentStepText.value = 'Step 4: Write back result to R1'
-  if (r0) r0.status = '' 
-  if (r1) {
-    r1.status = 'write'
-    r1.value = result
-  }
+  if (r0) r0.status = ''
+  if (r1) { r1.status = 'write'; r1.value = result }
   drawArchitecture(3)
   await nextTick()
   updateOverlay('REGISTER', 'R1', `Write R1 = ${result}`)
-  
   await sleep(1200)
-  
-  // Finish
+
   currentStepText.value = 'Execution Completed'
   if (r1) r1.status = ''
   drawArchitecture(0)
   demoOverlay.value.show = false
   isAnimating.value = false
-  setTimeout(() => currentStepText.value = '', 2000)
+  setTimeout(() => { currentStepText.value = '' }, 2000)
 }
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))

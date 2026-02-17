@@ -21,6 +21,13 @@ web/
 ├── public/                 # 静态资源
 │   └── favicon.ico
 ├── src/
+│   ├── animation/         # ADL 动画与 Trace 播放
+│   │   ├── adl-types.ts   # ADL v1 类型定义
+│   │   ├── adl-schema.json # ADL JSON Schema
+│   │   ├── ADL_SPEC.md    # ADL 规范与示例
+│   │   ├── tracePlayer.ts # Trace 播放器（batch/stream）
+│   │   ├── streaming.ts  # SSE 流式消费预留
+│   │   └── index.ts       # 统一导出
 │   ├── assets/            # 资源文件
 │   │   ├── base.css      # 基础样式
 │   │   ├── main.css      # 主样式
@@ -34,7 +41,7 @@ web/
 │   │   ├── HomeView.vue  # 首页
 │   │   ├── Login.vue     # 登录页
 │   │   ├── LoginOAuth.vue # OAuth 回调页
-│   │   └── Demo.vue      # 原型演示页
+│   │   └── Demo.vue      # 原型演示页（支持 ADL + fallback）
 │   ├── App.vue           # 根组件
 │   └── main.js           # 入口文件
 ├── index.html            # HTML 模板
@@ -215,6 +222,7 @@ if (isAuthenticated.value) {
 |------|------|------|
 | `/api/login` | GET | 登录入口，根据配置重定向 |
 | `/api/login-oauth/{providerName}` | GET | OAuth 回调处理 |
+| `/api/trace` | GET | 获取 ADL 动画 Trace（可选；未实现时 Demo 使用本地 fallback） |
 
 ### API 请求示例
 
@@ -259,6 +267,62 @@ const data = await res.json()
   "login_source": "oauth"
 }
 ```
+
+## ADL 动画与 Trace 播放
+
+Demo 页的指令动画由**动画描述语言（ADL）**驱动：后端返回 Trace（步骤快照 + 事件列表），前端解析并执行。
+
+### 相关文件
+
+| 文件 | 说明 |
+|------|------|
+| `src/animation/ADL_SPEC.md` | ADL v1 规范、StepSnapshot/AnchorRef/事件类型、示例 payload |
+| `src/animation/adl-schema.json` | ADL 的 JSON Schema |
+| `src/animation/adl-types.ts` | TraceResponse、StepSnapshot、ADLEvent、AnchorRef 等 TypeScript 类型 |
+| `src/animation/tracePlayer.ts` | `playTrace()` 批量播放、`playTraceStream()` 流式播放 |
+| `src/animation/streaming.ts` | SSE 流式消费预留（`streamTraceStepsFromSSE`） |
+
+### Trace 响应结构（概要）
+
+- **TraceResponse**: `adlVersion`, `code?`, `initialState?`, `steps[]`
+- **每步 (TraceStep)**: `snapshot`（pc、registers、flags、memoryDelta）+ `events[]`
+- **事件类型**: `SetActiveLine`、`FocusCanvas`、`MarkRegister`、`OverlayArrow`、`AnnotateBus`、`Wait`
+- **锚点 (AnchorRef)**: `CodeLineAddr`、`PC`、`RegisterRow`、`CanvasComponent`
+
+详见 `src/animation/ADL_SPEC.md`。
+
+### Demo 页行为
+
+1. 点击「Run Demo」时先请求 `GET /api/trace`。
+2. 若返回合法 Trace（`adlVersion === 1` 且 `steps` 为数组），则用 **TracePlayer** 按 ADL 播放。
+3. 若请求失败或无 Trace，则使用**本地 fallback**（硬编码的 ADD 示例动画）。
+
+### 使用 TracePlayer（其他页面）
+
+```typescript
+import { playTrace, playTraceStream } from '@/animation'
+import type { TraceResponse, TracePlayerDriver } from '@/animation'
+
+const driver: TracePlayerDriver = {
+  applySnapshot(snapshot) { /* 更新寄存器/Flags/内存 */ },
+  setActiveLine(index) { /* 高亮代码行 */ },
+  setCanvasFocus(target) { /* CU | REG | ALU | None */ },
+  markRegister(reg, mode) { /* read | write | clear */ },
+  setOverlay(from, to, text) { /* 解析锚点坐标并画箭头 */ },
+  wait(ms) { return new Promise(r => setTimeout(r, ms)) }
+}
+
+// 批量播放
+await playTrace(traceResponse, { driver, speed: 1 })
+
+// 流式播放（预留，需后端 SSE）
+// const steps = streamTraceStepsFromSSE(new EventSource('/api/trace/stream'))
+// await playTraceStream(steps, { driver, speed: 1 })
+```
+
+### 流式 (SSE) 预留
+
+单步数据结构与 `TraceResponse.steps[]` 中元素一致。后端若提供 SSE（如 `EventSource('/api/trace/stream')`），前端可用 `streamTraceStepsFromSSE(es)` 得到 `AsyncIterable<TraceStep>`，再传入 `playTraceStream()`。
 
 ## 开发指南
 
@@ -514,6 +578,14 @@ A: 在浏览器开发者工具中：
 - **Firefox**: [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
 
 ## 更新日志
+
+### 2026-02-17
+- **ADL 动画与 Trace 播放**
+  - 新增 `src/animation/`：ADL v1 类型、JSON Schema、规范文档（`ADL_SPEC.md`）
+  - 实现 Trace 播放器：`playTrace()` 批量播放、`playTraceStream()` 流式预留
+  - Demo 页支持 ADL 驱动：请求 `GET /api/trace`，有则按 Trace 播放，否则走本地 fallback
+  - 锚点解析（CodeLineAddr / RegisterRow / CanvasComponent / PC）与 overlay 箭头
+  - 预留 SSE 消费：`streamTraceStepsFromSSE()`，与后端流式协议一致
 
 ### 2025-12-18
 - 新增 `/demo` 原型演示页面

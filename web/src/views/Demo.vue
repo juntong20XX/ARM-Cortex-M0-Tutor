@@ -1,7 +1,7 @@
 <template>
   <div class="demo-container" ref="demoContainerRef" :style="{ paddingLeft: paddingLeft + 'px', paddingRight: paddingRight + 'px' }">
-    <!-- 左边缘拖拽条 -->
-    <div class="resize-edge resize-edge-left" @mousedown.prevent="startEdgeResize('left', $event)"></div>
+    <!-- 左边缘拖拽条：与内容左边界对齐 -->
+    <div class="resize-edge resize-edge-left" :style="{ left: paddingLeft + 'px' }" @mousedown.prevent="startEdgeResize('left', $event)"></div>
 
     <div class="left-panel" ref="leftPanelRef">
       <div class="toolbar">
@@ -27,8 +27,34 @@
       </div>
       <div class="resize-handle-h" @mousedown.prevent="startVertResize('editor-canvas', $event)"></div>
       <div class="canvas-container">
-         <div class="canvas-header">MCU Architecture & Data Bus</div>
-         <canvas ref="archCanvas" width="800" height="450"></canvas>
+         <div class="canvas-header">
+           <span>MCU Architecture & Data Bus</span>
+           <div class="canvas-zoom-controls">
+             <el-button-group size="small">
+               <el-button @click="mcuZoomOut" :disabled="mcuZoom <= 0.5">−</el-button>
+               <el-button disabled class="zoom-label">{{ Math.round(mcuZoom * 100) }}%</el-button>
+               <el-button @click="mcuZoomIn" :disabled="mcuZoom >= 3">+</el-button>
+               <el-button @click="mcuZoomReset">Reset</el-button>
+             </el-button-group>
+           </div>
+         </div>
+         <div
+           class="canvas-zoom-wrapper"
+           ref="mcuZoomWrapperRef"
+           @wheel.prevent="onMcuCanvasWheel"
+         >
+           <div
+             class="canvas-zoom-inner"
+             :style="{ width: 800 * mcuZoom + 'px', height: 450 * mcuZoom + 'px' }"
+           >
+             <div
+               class="canvas-zoom-content"
+               :style="{ transform: `scale(${mcuZoom})` }"
+             >
+               <canvas ref="archCanvas" width="800" height="450"></canvas>
+             </div>
+           </div>
+         </div>
       </div>
     </div>
 
@@ -130,8 +156,8 @@
       </div>
     </div>
 
-    <!-- 右边缘拖拽条 -->
-    <div class="resize-edge resize-edge-right" @mousedown.prevent="startEdgeResize('right', $event)"></div>
+    <!-- 右边缘拖拽条：与内容右边界对齐 -->
+    <div class="resize-edge resize-edge-right" :style="{ right: paddingRight + 'px' }" @mousedown.prevent="startEdgeResize('right', $event)"></div>
 
     <!-- Overlay Layer for Arrows (Moved to Container Level) -->
     <svg v-if="demoOverlay.show" class="overlay-svg">
@@ -239,6 +265,18 @@ watch(memoryViewStart, (v) => {
 const isAnimating = ref(false)
 const currentStepText = ref('')
 const archCanvas = ref(null)
+const mcuZoomWrapperRef = ref(null)
+const MCU_ZOOM_MIN = 0.5
+const MCU_ZOOM_MAX = 3
+const MCU_ZOOM_STEP = 0.25
+const mcuZoom = ref(1)
+const mcuZoomIn = () => { if (mcuZoom.value < MCU_ZOOM_MAX) mcuZoom.value = Math.min(MCU_ZOOM_MAX, mcuZoom.value + MCU_ZOOM_STEP) }
+const mcuZoomOut = () => { if (mcuZoom.value > MCU_ZOOM_MIN) mcuZoom.value = Math.max(MCU_ZOOM_MIN, mcuZoom.value - MCU_ZOOM_STEP) }
+const mcuZoomReset = () => { mcuZoom.value = 1 }
+const onMcuCanvasWheel = (e) => {
+  if (e.deltaY < 0) mcuZoomIn()
+  else if (e.deltaY > 0) mcuZoomOut()
+}
 const leftPanelRef = ref(null)
 const rightPanelRef = ref(null)
 const demoContainerRef = ref(null)
@@ -397,7 +435,7 @@ const drawArchitecture = (step = 0) => {
   drawBox(ctx, CU.x, CU.y, CU.w, CU.h, step >= 1 ? COLOR_BOX_ACTIVE : COLOR_BOX, 'Control Unit', COLOR_TEXT)
   // Subtext for CU
   ctx.fillStyle = '#666'
-  ctx.font = '10px Arial'
+  ctx.font = '12px Arial'
   ctx.fillText('Instruction Decoder', CU.x + CU.w/2, CU.y + CU.h/2 + 20)
   
   // 2. Register Bank (Top Right)
@@ -446,6 +484,13 @@ const drawArchitecture = (step = 0) => {
       ctx.fillStyle = '#333'
       ctx.font = 'bold 16px monospace'
       ctx.fillText("Result: 3", ALU.x - 40, ALU.y + 90)
+  }
+
+  if (step >= 3) {
+      // 显示写回目的寄存器的结果，帮助理解数据流向
+      ctx.fillStyle = '#333'
+      ctx.font = 'bold 14px monospace'
+      ctx.fillText("Write R1 = 3", REG.x + REG.w + 40, REG.y + 45)
   }
 }
 
@@ -521,22 +566,22 @@ const updateOverlay = (targetType, targetValue, text) => {
     return
   }
   
-  // 1. Get Source Position (Active Line) - 使用行号元素精确定位
+  // 1. Get Source Position (Active Line) - 使用地址元素（.line-addr）作为箭头起点
   const activeLineEl = lineRefs.value[activeLineIndex.value]
   const containerEl = demoContainerRef.value
   
   if (!activeLineEl || !containerEl) return
   
-  // 获取行号元素（.line-number）作为箭头起点
-  const lineNumEl = activeLineEl.querySelector('.line-number')
-  if (!lineNumEl) return
+  // 获取地址元素（.line-addr）作为箭头起点
+  const lineAddrEl = activeLineEl.querySelector('.line-addr')
+  if (!lineAddrEl) return
   
-  const numRect = lineNumEl.getBoundingClientRect()
+  const addrRect = lineAddrEl.getBoundingClientRect()
   const containerRect = containerEl.getBoundingClientRect()
   
-  // 箭头从行号右边缘出发（数字和代码中间）
-  const fromX = numRect.right - containerRect.left
-  const fromY = numRect.top - containerRect.top + numRect.height / 2
+  // 箭头从地址左边缘出发
+  const fromX = addrRect.left - containerRect.left
+  const fromY = addrRect.top - containerRect.top + addrRect.height / 2
   
   let toX = 0, toY = 0
   
@@ -547,19 +592,20 @@ const updateOverlay = (targetType, targetValue, text) => {
      if (!canvasEl || !leftPanelEl) return
      
      const canvasRect = canvasEl.getBoundingClientRect()
-     // We need to account that canvas is inside left-panel, which is inside demo-container
      const canvasOffsetX = canvasRect.left - containerRect.left
      const canvasOffsetY = canvasRect.top - containerRect.top
+     const scaleX = canvasRect.width / 800
+     const scaleY = canvasRect.height / 450
      
      const layout = LAYOUT[targetValue]
      if (!layout) return
      
      if (targetValue === 'ALU') {
-        toX = layout.x + canvasOffsetX
-        toY = layout.y + layout.size/2 + canvasOffsetY
+        toX = canvasOffsetX + layout.x * scaleX
+        toY = canvasOffsetY + (layout.y + layout.size / 2) * scaleY
      } else {
-        toX = layout.x + layout.w / 2 + canvasOffsetX
-        toY = layout.y + layout.h / 2 + canvasOffsetY
+        toX = canvasOffsetX + (layout.x + layout.w / 2) * scaleX
+        toY = canvasOffsetY + (layout.y + layout.h / 2) * scaleY
      }
   } else if (targetType === 'REGISTER') {
      // Right panel table row
@@ -644,42 +690,51 @@ const runDemo = async () => {
   drawArchitecture(0)
   demoOverlay.value.show = false
   
-  // Step 1: Fetch/Decode & Read
-  currentStepText.value = 'Step 1: Decode & Read Operands'
+  // Step 1: Decode 指令（仅控制单元工作）
+  currentStepText.value = 'Step 1: Decode instruction (Control Unit)'
   const r0 = registers.value.find(r => r.name === 'R0')
+  const r1 = registers.value.find(r => r.name === 'R1')
+  drawArchitecture(1)
+  await nextTick()
+  // 从代码行指向控制单元，说明正在解析 ADD #2, R0 -> R1
+  updateOverlay('CANVAS', 'CU', 'Decode: ADD #2, R0 → R1')
+  await sleep(1200)
+
+  // Step 2: Read 操作数 R0
+  currentStepText.value = 'Step 2: Read operand R0'
   if (r0) r0.status = 'read'
   drawArchitecture(1)
   
-  // Arrow: Code -> R0 (in Table) - showing we are reading R0
+  // Arrow: Code -> R0 (in Table)，并明确当前数值
   await nextTick()
-  updateOverlay('REGISTER', 'R0', 'Read R0')
+  updateOverlay('REGISTER', 'R0', `Read R0 = ${r0 ? r0.value : '? '}`)
   
-  await sleep(1500)
+  await sleep(1200)
   
-  // Step 2: ALU Execute
-  currentStepText.value = 'Step 2: ALU Execution (1 + 2)'
+  // Step 3: ALU 执行，加法 1 + 2
+  currentStepText.value = 'Step 3: ALU Execution (R0 + #2)'
   const result = 3
   flags.value.N = result < 0
   flags.value.Z = result === 0
   
   drawArchitecture(2)
-  updateOverlay('CANVAS', 'ALU', 'Execute')
+  // 从代码指向 ALU，文字说明数据流：R0=1, imm=2, result=3
+  updateOverlay('CANVAS', 'ALU', 'ALU: 1 + 2 = 3')
   
-  await sleep(1500)
+  await sleep(1200)
   
-  // Step 3: Write Back
-  currentStepText.value = 'Step 3: Write Back (R1)'
+  // Step 4: 写回结果到 R1
+  currentStepText.value = 'Step 4: Write back result to R1'
   if (r0) r0.status = '' 
-  const r1 = registers.value.find(r => r.name === 'R1')
   if (r1) {
     r1.status = 'write'
     r1.value = result
   }
   drawArchitecture(3)
   await nextTick()
-  updateOverlay('REGISTER', 'R1', 'Write R1')
+  updateOverlay('REGISTER', 'R1', `Write R1 = ${result}`)
   
-  await sleep(1500)
+  await sleep(1200)
   
   // Finish
   currentStepText.value = 'Execution Completed'
@@ -819,6 +874,36 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
   color: #606266;
   background: #f5f7fa;
   border-bottom: 1px solid #dcdfe6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.canvas-zoom-controls .zoom-label {
+  min-width: 52px;
+}
+
+.canvas-zoom-wrapper {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.canvas-zoom-inner {
+  position: relative;
+}
+
+.canvas-zoom-content {
+  width: 800px;
+  height: 450px;
+  transform-origin: 0 0;
+}
+
+.canvas-zoom-content canvas {
+  display: block;
+  width: 800px;
+  height: 450px;
 }
 
 canvas {

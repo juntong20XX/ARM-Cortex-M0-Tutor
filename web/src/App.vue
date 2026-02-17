@@ -5,18 +5,20 @@ import {RouterLink, RouterView} from 'vue-router'
 <template>
   <div class="app-shell">
     <header class="app-header">
-      <div class="brand">
-        <span class="brand-mark"/>
-        <div>
-          <p class="brand-name">ARM Cortex-M0</p>
-          <p class="brand-sub">Home</p>
+      <div class="app-header-inner">
+        <div class="brand">
+          <span class="brand-mark"/>
+          <div>
+            <p class="brand-name">ARM Cortex-M0</p>
+            <p class="brand-sub">Home</p>
+          </div>
         </div>
+        <nav class="nav">
+          <RouterLink to="/" exact-active-class="nav-active">Home</RouterLink>
+          <RouterLink to="/project" active-class="nav-active">Project</RouterLink>
+          <RouterLink to="/config" active-class="nav-active">Config</RouterLink>
+        </nav>
       </div>
-      <nav class="nav">
-        <RouterLink to="/" exact-active-class="nav-active">Home</RouterLink>
-        <RouterLink to="/project" active-class="nav-active">Project</RouterLink>
-        <RouterLink to="/config" active-class="nav-active">Config</RouterLink>
-      </nav>
     </header>
 
     <div class="app-view">
@@ -43,6 +45,12 @@ import {RouterLink, RouterView} from 'vue-router'
 }
 
 .app-header {
+  width: 100%;
+}
+
+.app-header-inner {
+  max-width: 1280px;
+  margin: 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;

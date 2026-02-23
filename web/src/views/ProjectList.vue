@@ -78,6 +78,10 @@ function getProjectTags(project) {
 }
 
 function getProjectLink(project) {
+  const uuid = project.uuid
+  if (uuid) {
+    return { path: '/project/workspace', query: { uuid } }
+  }
   const name = project.name || project.title || project.id
   if (name) {
     return { path: '/demo', query: { project: name } }

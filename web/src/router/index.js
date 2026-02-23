@@ -7,6 +7,7 @@ import LoginView from '../views/Login.vue'
 import LoginOAuthView from '../views/LoginOAuth.vue'
 import DemoView from '../views/Demo.vue'
 import DemoEmbedView from '../views/DemoEmbedView.vue'
+import ProjectWorkspaceView from '../views/ProjectWorkspaceView.vue'
 import { useSession } from '../composables/useSession'
 
 const router = createRouter({
@@ -14,6 +15,7 @@ const router = createRouter({
   routes: [
     { path: '/', name: 'home', component: HomeView },
     { path: '/project/list', name: 'project', component: ProjectList },
+    { path: '/project/workspace', name: 'project-workspace', component: ProjectWorkspaceView, props: true },
     { path: '/project', redirect: '/project/list' },
     { path: '/config', name: 'config', component: ConfigView },
     { path: '/demo', name: 'demo', component: DemoView },

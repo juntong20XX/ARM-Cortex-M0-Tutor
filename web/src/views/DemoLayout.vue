@@ -6,7 +6,7 @@
     <div class="left-panel" ref="leftPanelRef">
       <div class="toolbar">
         <el-button type="primary" size="small" @click="runDemo" :disabled="isAnimating">
-          <el-icon><VideoPlay /></el-icon> Run Demo (ADD 2 r0 r1)
+          <el-icon><VideoPlay /></el-icon> Run
         </el-button>
         <el-tag v-if="currentStepText" type="warning" class="step-info">{{ currentStepText }}</el-tag>
       </div>
@@ -181,7 +181,23 @@ import { playTrace } from '@/animation/tracePlayer'
 import { ADL_VERSION } from '@/animation/adl-types'
 import type { TraceResponse, StepSnapshot, AnchorRef } from '@/animation/adl-types'
 
-const code = ref('\nMOV r0, #1\n\nADD r0, r1\n')
+const props = withDefaults(
+  defineProps<{
+    initialCode?: string
+    projectUuid?: string
+  }>(),
+  { initialCode: undefined, projectUuid: undefined }
+)
+
+const defaultCode = '\nMOV r0, #1\n\nADD r0, r1\n'
+const code = ref(props.initialCode ?? defaultCode)
+
+watch(
+  () => props.initialCode,
+  (v) => {
+    if (v != null && v !== undefined) code.value = v
+  }
+)
 
 const codeLines = computed(() => {
   return code.value.split('\n')
@@ -839,7 +855,10 @@ const MOCK_TRACE = {
 
 async function fetchTrace(): Promise<TraceResponse | null> {
   try {
-    const res = await fetch('/api/trace', { method: 'GET', credentials: 'include' })
+    const url = props.projectUuid
+      ? `/api/project/trace?uuid=${encodeURIComponent(props.projectUuid)}`
+      : '/api/trace'
+    const res = await fetch(url, { method: 'GET', credentials: 'include' })
     if (!res.ok) return null
     const data = await res.json()
     if ((data as any)?.adlVersion === ADL_VERSION && Array.isArray((data as any)?.steps)) return data as TraceResponse

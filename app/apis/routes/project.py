@@ -16,7 +16,7 @@ logger = getLogger(__name__)
 router = APIRouter(tags=["project"])
 
 
-def _setup_project_info(project: db.models.DBProject) -> models.ProjectInfo:
+def _setup_project_info(project: db.models.DBProject, simplified=False) -> models.ProjectInfo:
     return models.ProjectInfo(
         success=True,
         msg="",
@@ -24,9 +24,9 @@ def _setup_project_info(project: db.models.DBProject) -> models.ProjectInfo:
         name=project.name,
         content=project.content,
         description=project.description,
-        source=project.source,
-        code=project.code,
-        executed=project.executed,
+        source=project.source if not simplified else "",
+        code=project.code if not simplified else [],
+        executed=project.executed if not simplified else [],
         owner_id=project.owner_id,
         owner_name=project.owner.username,
         created_at=project.created_at,
@@ -34,18 +34,18 @@ def _setup_project_info(project: db.models.DBProject) -> models.ProjectInfo:
     )
 
 
-@router.get("/project/info/{project_name}", response_model=models.ProjectInfo)
-async def get_project_info(project_name: str):
+@router.get("/project/info/{project_uuid}", response_model=models.ProjectInfo)
+async def get_project_info(project_uuid: str):
     """
     获取项目信息
-    :param project_name: 项目名称
+    :param project_uuid: 项目 UUID
     :return: 项目信息
     :raise HTTPException: 项目未找到
     """
     with db.db_context() as session:
-        projects = db.find_project_by_name(session, project_name)
+        projects = db.find_project_by_uuid(session, project_uuid)
         if not projects:
-            raise HTTPException(status_code=404, detail=f"Project '{project_name}' not found")
+            raise HTTPException(status_code=404, detail=f"Project '{project_uuid}' not found")
 
         project = projects[0]
         return _setup_project_info(project)
@@ -109,4 +109,4 @@ async def get_project_list(request: Request):
     # TODO: check permission, just return all projects here
     with db.db_context() as session:
         all_projects = db.find_all_projects(session)
-        return [_setup_project_info(p) for p in all_projects]
+        return [_setup_project_info(p, simplified=True) for p in all_projects]

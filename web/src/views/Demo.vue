@@ -181,7 +181,7 @@ import { playTrace } from '@/animation/tracePlayer'
 import { ADL_VERSION } from '@/animation/adl-types'
 import type { TraceResponse, StepSnapshot, AnchorRef } from '@/animation/adl-types'
 
-const code = ref('\nMOV 1 r0\n\nADD 2 r0 r1\n')
+const code = ref('\nMOV r0, #1\n\nADD r0, r1\n')
 
 const codeLines = computed(() => {
   return code.value.split('\n')

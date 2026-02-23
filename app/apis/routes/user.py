@@ -1,5 +1,5 @@
 """
-
+user operations: get/set information, add, remove, etc.
 """
 from ..models import LoginSource
 from ... import database as db

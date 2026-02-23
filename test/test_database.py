@@ -10,9 +10,10 @@ from app.database import (init_database, db_context,
                           add_group, find_group_by_name, find_group_by_uuid,
                           find_all_groups, update_group, delete_group,
                           add_user_to_group, remove_user_from_group,
-                          get_user_groups, get_group_users, find_users_by_group,
+                          get_user_managed_groups, get_group_users, find_users_by_group,
                           add_managed_user_to_group, remove_managed_user_from_group, get_group_managed_users,
                           add_managed_project_to_group, remove_managed_project_from_group, get_group_managed_projects,
+                          get_groups_directly_managing_project,
                           add_managed_group_to_group, remove_managed_group_from_group, get_group_managed_groups
                           )
 from app.database.models import DBBase, DBUser, DBProject
@@ -405,6 +406,55 @@ class TestGroupManagement(unittest.TestCase):
             self.assertIn("Project1", project_names)
             self.assertIn("Project2", project_names)
 
+    def test_get_groups_directly_managing_project_empty(self):
+        """测试无组管理项目时返回空列表"""
+        with db_context() as session:
+            groups = get_groups_directly_managing_project(session, self.project1_uuid)
+        self.assertEqual(len(groups), 0)
+
+    def test_get_groups_directly_managing_project_single_group(self):
+        """测试单个组直接管理项目时返回该组"""
+        with db_context() as session:
+            add_managed_project_to_group(session, "admins", self.project1_uuid)
+
+        with db_context() as session:
+            groups = get_groups_directly_managing_project(session, self.project1_uuid)
+            self.assertEqual(len(groups), 1)
+            self.assertEqual(groups[0].name, "admins")
+
+    def test_get_groups_directly_managing_project_multiple_groups(self):
+        """测试多个组直接管理同一项目时返回所有组"""
+        with db_context() as session:
+            add_managed_project_to_group(session, "admins", self.project1_uuid)
+            add_managed_project_to_group(session, "developers", self.project1_uuid)
+
+        with db_context() as session:
+            groups = get_groups_directly_managing_project(session, self.project1_uuid)
+            self.assertEqual(len(groups), 2)
+            group_names = [g.name for g in groups]
+            self.assertIn("admins", group_names)
+            self.assertIn("developers", group_names)
+
+    def test_get_groups_directly_managing_project_per_project(self):
+        """测试不同项目返回各自直接管理的组"""
+        with db_context() as session:
+            add_managed_project_to_group(session, "admins", self.project1_uuid)
+            add_managed_project_to_group(session, "developers", self.project2_uuid)
+
+        with db_context() as session:
+            groups_p1 = get_groups_directly_managing_project(session, self.project1_uuid)
+            groups_p2 = get_groups_directly_managing_project(session, self.project2_uuid)
+            self.assertEqual(len(groups_p1), 1)
+            self.assertEqual(groups_p1[0].name, "admins")
+            self.assertEqual(len(groups_p2), 1)
+            self.assertEqual(groups_p2[0].name, "developers")
+
+    def test_get_groups_directly_managing_project_nonexistent_project(self):
+        """测试不存在的 project_uuid 返回空列表（不抛错）"""
+        with db_context() as session:
+            groups = get_groups_directly_managing_project(session, "00000000-0000-0000-0000-000000000000")
+        self.assertEqual(len(groups), 0)
+
     # ========== Group Managed Groups Tests ==========
 
     def test_add_managed_group_to_group(self):
@@ -675,7 +725,7 @@ class TestGroupModels(unittest.TestCase):
 
         with db_context() as session:
             user = find_user_by_username(session, "testuser")[0]
-            groups = get_user_groups(session, user.uuid)
+            groups = get_user_managed_groups(session, user.uuid)
             self.assertEqual(len(groups), 2)
 
     def test_get_group_users(self):

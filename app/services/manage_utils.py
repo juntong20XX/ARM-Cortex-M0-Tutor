@@ -67,3 +67,25 @@ def check_user_permission_of_other_user(session: Session, user_uuid: str, other_
             if other_user_group.uuid in (i.uuid for i in user_group.managed_groups):
                 return True
     return False
+
+def check_user_permission_of_project(session: Session, user_uuid: str, project_uuid: str) -> bool:
+    """
+
+    :param session:
+    :param user_uuid:
+    :param project_uuid:
+    :raise KeyError: user not found
+    :return:
+    """
+    # 1. 项目直接属于用户
+    user = db.find_user_by_uuid(session, user_uuid)[0]
+    if project_uuid in (i.uuid for i in user.projects):
+        return True
+    # 2. 项目属于用户直接管理的用户组
+    user_managed_groups = db.get_user_managed_groups(session, user_uuid)
+    groups = db.get_groups_directly_managing_project(session, project_uuid)
+    if set(i.uuid for i in user_managed_groups) & set(i.uuid for i in groups):
+        return True
+    # 3. 项目属于用户通过用户组间接管理的用户组
+    # 4. 项目属于用户通过用户组管理的用户管理的管理组
+    # 5. 项目

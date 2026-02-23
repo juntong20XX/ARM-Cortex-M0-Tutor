@@ -13,6 +13,15 @@ import uuid as uuid_module
 from datetime import datetime, UTC
 
 
+def find_all_projects(session: Session) -> list[DBProject]:
+    """
+    获取所有项目.
+    :param session: a db Session
+    :return: 所有项目列表
+    """
+    return session.query(DBProject).all()
+
+
 def find_project_by_name(session: Session, project_name: str) -> list[DBProject]:
     """
     Found user sequence with project name, the name need be full-matched.
@@ -856,10 +865,10 @@ def remove_user_from_group(session: Session,
     return user
 
 
-def get_user_groups(session: Session, user_uuid: str) -> list[DBGroup]:
+def get_user_managed_groups(session: Session, user_uuid: str) -> list[DBGroup]:
     """
     获取用户所属的所有用户组。
-    
+    注意不会展开 group manage groups, 此函数不能作为权限检查.
     :param session: a db Session
     :param user_uuid: str, 用户的 UUID
     :return: 用户所属的用户组列表
@@ -1086,6 +1095,21 @@ def get_group_managed_projects(session: Session, group_name: str) -> list[DBProj
     group = groups[0]
     return list(group.managed_projects)
 
+def get_group_managed_projects_uuid(session: Session, group_uuid: str) -> list[DBProject]:
+    """
+    获取组可管理的所有项目。
+
+    :param session: a db Session
+    :param group_uuid: str, 组 UUID
+    :return: 组可管理的项目列表
+    :raise KeyError: 如果组不存在
+    """
+    groups = find_group_by_uuid(session, group_uuid)
+    if not groups:
+        raise KeyError(f"Group with UUID '{group_uuid}' not found")
+
+    group = groups[0]
+    return list(group.managed_projects)
 
 # ==================== 组可管理组相关函数 ====================
 
@@ -1166,7 +1190,6 @@ def remove_managed_group_from_group(session: Session,
     
     return manager_group
 
-
 def get_group_managed_groups(session: Session, group_name: str) -> list[DBGroup]:
     """
     获取组可管理的所有其他组。
@@ -1182,3 +1205,37 @@ def get_group_managed_groups(session: Session, group_name: str) -> list[DBGroup]
     
     group = groups[0]
     return list(group.managed_groups)
+
+def get_group_managed_groups_uuid(session: Session, group_uuid: str) -> list[DBGroup]:
+    """
+    获取组可管理的所有其他组.
+
+    :param session: a db Session
+    :param group_uuid: str, 组名
+    :return: 组可管理的其他组列表
+    :raise KeyError: 如果组不存在
+    """
+    groups = find_group_by_uuid(session, group_uuid)
+    if not groups:
+        raise KeyError(f"Group with UUID '{group_uuid}' not found")
+
+    group = groups[0]
+    return list(group.managed_groups)
+
+def get_groups_directly_managing_project(session: Session, project_uuid: str) -> list[DBGroup]:
+    """
+    直接管理项目的组列表.
+    :param session:
+    :param project_uuid:
+    :return:
+    """
+    from .models import group_managed_projects_association
+    rows = session.query(group_managed_projects_association.c.group_id).filter(
+        group_managed_projects_association.c.project_id == project_uuid
+    ).all()
+    if not rows:
+        return []
+    group_uuids = [r[0] for r in rows]
+    return session.query(DBGroup).filter(DBGroup.uuid.in_(group_uuids)).all()
+
+

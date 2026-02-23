@@ -90,7 +90,8 @@ const handleLogin = (): void => {
 const handleLogout = (): void => {
   clearSession()
   ElMessage.success('Logged out successfully')
-  router.push('/logout')
+  // 跳转到后端登出接口，清除服务端 session 后再重定向到 /login，否则无法重新登录
+  window.location.href = '/api/logout'
 }
 
 const handleGoHome = (): void => {

@@ -110,7 +110,7 @@ async function loadProjects() {
 
     projects.value = list
   } catch (err) {
-    console.error('[ProjectView] Failed to load project list:', err)
+    console.error('[ProjectList] Failed to load project list:', err)
     loadError.value = true
     projects.value = demoProjects
   } finally {
@@ -172,7 +172,7 @@ async function submitCreateProject() {
       createError.value = data.detail || data.msg || `创建失败 (${res.status})`
     }
   } catch (err) {
-    console.error('[ProjectView] Create project failed:', err)
+    console.error('[ProjectList] Create project failed:', err)
     createError.value = err.message || '网络错误'
   } finally {
     creating.value = false
@@ -523,7 +523,7 @@ onMounted(() => {
 
 .tag-list {
   display: flex;
-  
+
   flex-wrap: wrap;
   gap: 6px;
 }

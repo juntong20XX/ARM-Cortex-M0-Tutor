@@ -15,7 +15,7 @@ import {RouterLink, RouterView} from 'vue-router'
         </div>
         <nav class="nav">
           <RouterLink to="/" exact-active-class="nav-active">Home</RouterLink>
-          <RouterLink to="/project" active-class="nav-active">Project</RouterLink>
+          <RouterLink to="/project/list" active-class="nav-active">Project</RouterLink>
           <RouterLink to="/config" active-class="nav-active">Config</RouterLink>
         </nav>
       </div>

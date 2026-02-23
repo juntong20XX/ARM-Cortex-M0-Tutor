@@ -523,6 +523,7 @@ onMounted(() => {
 
 .tag-list {
   display: flex;
+  
   flex-wrap: wrap;
   gap: 6px;
 }

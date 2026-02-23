@@ -39,6 +39,14 @@ def _update_oauth_obj():
                            })
     _oauth_initialized = True
 
+@router.get("/logout")
+async def logout(request: Request):
+    """
+    登出: 清除 Session
+    """
+    request.session.pop('user', None)
+    return {"message": "Logged out"}
+
 
 @router.get("/login")
 async def login(request: Request):

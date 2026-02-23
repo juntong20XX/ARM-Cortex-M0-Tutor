@@ -38,10 +38,12 @@ web/
 │   ├── router/            # 路由配置
 │   │   └── index.js
 │   ├── views/             # 页面组件
-│   │   ├── HomeView.vue  # 首页
-│   │   ├── Login.vue     # 登录页
-│   │   ├── LoginOAuth.vue # OAuth 回调页
-│   │   └── Demo.vue      # 原型演示页（支持 ADL + fallback）
+│   │   ├── HomeView.vue      # 首页
+│   │   ├── Login.vue         # 登录页
+│   │   ├── LoginOAuth.vue    # OAuth 回调页
+│   │   ├── DemoLayout.vue    # Demo 布局组件（可复用）
+│   │   ├── Demo.vue          # Demo 全屏页面（包装 DemoLayout）
+│   │   └── DemoEmbedView.vue # Demo iframe 嵌入页面（包装 DemoLayout）
 │   ├── App.vue           # 根组件
 │   └── main.js           # 入口文件
 ├── index.html            # HTML 模板
@@ -96,12 +98,41 @@ npm run preview
 | `/` | `home` | `HomeView` | 首页 |
 | `/login` | `login` | `Login` | 登录页 |
 | `/login-oauth/:providerName` | `login-oauth` | `LoginOAuth` | OAuth 回调页 |
-| `/demo` | `demo` | `Demo` | 原型演示页 |
+| `/demo` | `demo` | `Demo` | 原型演示页（全屏） |
+| `/demo/embed` | `demo-embed` | `DemoEmbedView` | 用于 iframe 嵌入的 Demo 布局 |
 | `/*` | - | - | 404 重定向到首页 |
 
 ### 路由参数
 
 - `/login-oauth/:providerName`: 动态路由参数，接收 OAuth 提供商名称（如 `github`、`google` 等）
+
+### Demo iframe 嵌入
+
+为方便在其他系统或页面中复用 Demo 布局，前端提供 `/demo/embed` 路径用于 iframe 嵌入。
+
+#### 在当前应用内部使用
+
+```vue
+<iframe
+  src="/demo/embed"
+  style="width: 100%; height: 600px; border: none;"
+></iframe>
+```
+
+#### 在外部站点中使用
+
+```html
+<iframe
+  src="https://your-domain/demo/embed"
+  width="100%"
+  height="600"
+  style="border:none; overflow:hidden;"
+  referrerpolicy="strict-origin-when-cross-origin"
+></iframe>
+```
+
+- **认证**：当前 `/demo/embed` 已加入路由白名单，默认不需要登录即可访问。若未来希望保护该页面，需要同步调整路由守卫逻辑以及部署端的认证配置。
+- **高度控制**：推荐由父页面直接设置 iframe 高度（如固定 `600px` 或 `100vh`）。如需自动高度，可在后续通过 `postMessage` 协议扩展，由 iframe 内容向父页面上报实际高度。
 
 ## 会话管理
 

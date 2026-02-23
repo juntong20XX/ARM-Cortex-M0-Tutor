@@ -6,6 +6,7 @@ import ConfigView from '../views/ConfigView.vue'
 import LoginView from '../views/Login.vue'
 import LoginOAuthView from '../views/LoginOAuth.vue'
 import DemoView from '../views/Demo.vue'
+import DemoEmbedView from '../views/DemoEmbedView.vue'
 import { useSession } from '../composables/useSession'
 
 const router = createRouter({
@@ -16,6 +17,7 @@ const router = createRouter({
     { path: '/project', redirect: '/project/list' },
     { path: '/config', name: 'config', component: ConfigView },
     { path: '/demo', name: 'demo', component: DemoView },
+    { path: '/demo/embed', name: 'demo-embed', component: DemoEmbedView },
     { path: '/login', name: 'login', component: LoginView },
     {
       path: '/login-oauth/:providerName',
@@ -32,7 +34,7 @@ const router = createRouter({
 
 // 全局路由守卫：除白名单外必须已登录
 router.beforeEach((to, from, next) => {
-  const whiteList = ['/login', '/login-oauth']
+  const whiteList = ['/login', '/login-oauth', '/demo/embed']
 
   // 白名单路径（含 /login-oauth 下的所有子路径）直接放行
   if (whiteList.some((path) => to.path === path || to.path.startsWith(`${path}/`))) {

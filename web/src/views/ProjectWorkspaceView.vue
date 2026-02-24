@@ -13,7 +13,7 @@
         <router-link to="/project/list" class="back-link">← Project list</router-link>
         <h1 class="workspace-title">{{ project.name }}</h1>
       </header>
-      <DemoLayout :initial-code="project.content" :project-uuid="project.uuid" />
+      <DemoWorkspace :initial-code="project.content" :project-uuid="project.uuid" />
     </template>
   </div>
 </template>
@@ -21,7 +21,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import DemoLayout from './DemoLayout.vue'
+import DemoWorkspace from './DemoWorkspace.vue'
 
 const route = useRoute()
 const router = useRouter()

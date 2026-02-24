@@ -41,9 +41,9 @@ web/
 │   │   ├── HomeView.vue      # 首页
 │   │   ├── Login.vue         # 登录页
 │   │   ├── LoginOAuth.vue    # OAuth 回调页
-│   │   ├── DemoLayout.vue    # Demo 布局组件（可复用）
-│   │   ├── Demo.vue          # Demo 全屏页面（包装 DemoLayout）
-│   │   └── DemoEmbedView.vue # Demo iframe 嵌入页面（包装 DemoLayout）
+│   │   ├── DemoWorkspace.vue  # Demo 工作区组件（可复用）
+│   │   ├── Demo.vue          # Demo 全屏页面（包装 DemoWorkspace）
+│   │   └── DemoEmbedView.vue # Demo iframe 嵌入页面（包装 DemoWorkspace）
 │   ├── App.vue           # 根组件
 │   └── main.js           # 入口文件
 ├── index.html            # HTML 模板

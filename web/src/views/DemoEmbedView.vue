@@ -1,8 +1,8 @@
 <template>
-  <DemoLayout />
+  <DemoWorkspace />
 </template>
 
 <script setup lang="ts">
-import DemoLayout from './DemoLayout.vue'
+import DemoWorkspace from './DemoWorkspace.vue'
 </script>
 

@@ -3,6 +3,7 @@ ADL trace 路由：返回符合 ADL v1 的 TraceResponse。
 见 web/src/animation/ADL_SPEC.md。
 """
 from .. import models
+from ... import database as db
 
 from fastapi import APIRouter, HTTPException
 
@@ -83,13 +84,18 @@ def _example_trace_response() -> models.TraceResponse:
     )
 
 
-@router.get("/trace", response_model=models.TraceResponse)
-async def get_trace():
+@router.get("/trace/{project_uuid}", response_model=models.TraceResponse)
+async def get_trace(project_uuid: str):
     """
     返回 ADL v1 的 TraceResponse（当前为静态示例）。
     前端 Demo 据此驱动代码高亮、寄存器、画布与箭头动画。
     """
-    return _example_trace_response()
+    with db.db_context() as session:
+        projects = db.find_project_by_uuid(session, project_uuid)
+        if not projects:
+            return _example_trace_response()
+        project = projects[0]
+        
 
 
 @router.get("/trace/stream")

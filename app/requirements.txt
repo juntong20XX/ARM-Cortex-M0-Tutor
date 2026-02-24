@@ -5,3 +5,5 @@ python-jose[cryptography]
 pyjwt
 passlib[argon2, bcrypt]
 authlib
+pygdbmi
+invoke

@@ -3,7 +3,7 @@
 """
 Connect `server` and `data`.
 """
-from .asm_basic import ASMLineReader, ASMLine
+from app.kernel.asm_basic import ASMLineReader, ASMLine
 
 from dataclasses import dataclass
 

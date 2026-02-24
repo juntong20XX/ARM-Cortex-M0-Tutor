@@ -1,6 +1,6 @@
 import unittest
 
-from kernel.connector import ASMLineReader, ASMLine, ASMParam
+from app.kernel import ASMLineReader, ASMLine, ASMParam
 
 class MyTestCase(unittest.TestCase):
     def test_something(self):

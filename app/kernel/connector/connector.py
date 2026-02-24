@@ -3,9 +3,10 @@
 """
 Connect `server` and `data`.
 """
-from app.kernel.asm_basic import ASMLineReader, ASMLine
+from .asm_basic import ASMLineReader, ASMLine
 
 from dataclasses import dataclass
+from typing import Optional
 
 from pygdbmi import gdbcontroller
 
@@ -38,18 +39,29 @@ class ASMStep:
           ('Z', '1'),
           ('C', '0'),
           ('V', '0'))
+    .memory_delta: 本步发生变化的地址(hex 字符串)到新字节值(0-255)的映射；未启用内存监视为 None。
     """
     line_counter: int
     addr_pc: str
     disassemble: tuple[tuple[str, ASMLine], ...]
     register_values: tuple[tuple[str, str], ...]
+    memory_delta: Optional[dict[str, int]] = None
 
 
 class ALoader:
-    def __init__(self, gdbmi: gdbcontroller.GdbController, socket_path: str, asm_reader: ASMLineReader = None):
+    def __init__(
+        self,
+        gdbmi: gdbcontroller.GdbController,
+        socket_path: str,
+        asm_reader: ASMLineReader = None,
+        *,
+        memory_watch_start: str = "0x20000000",
+        memory_watch_size: int = 0,
+    ):
         """
         Connect gdb and get `disassemble` and `register_values` of assembly code.
         By iter this object, each time will get a `ASMStep` object.
+        memory_watch_size > 0 时，每步会读该区域并计算 memory_delta。
         """
         self.gdbmi = gdbmi
         self._responses = gdbmi.get_gdb_response(timeout_sec=2)
@@ -70,6 +82,8 @@ class ALoader:
             self.reader = asm_reader
 
         self._line_counter = -1
+        self._memory_watch_start = memory_watch_start
+        self._memory_watch_size = memory_watch_size
 
     @staticmethod
     def _filter_type(response: list[dict], type_name: str):
@@ -110,7 +124,7 @@ class ALoader:
         #   'token': None,
         #   'stream': 'stdout'}]
         d: dict[str, str]
-        return tuple((d["address"], self.reader.load(d["inst"])) for d in response[0]["payload"]["asm_ins""ns"])
+        return tuple((d["address"], self.reader.load(d["inst"])) for d in response[0]["payload"]["asm_insns"])
 
     @staticmethod
     def xpsr_hex_to_nzcv(xpsr: str) -> tuple[tuple[str, str], ...]:
@@ -126,11 +140,43 @@ class ALoader:
         xpsr = register_values[16]["value"]
         return tuple(("r" + r["number"], r["value"]) for r in register_values[:16]) + self.xpsr_hex_to_nzcv(xpsr)
 
-    def asm_step(self) -> ASMStep:
+    def _read_memory_region(self, start_addr: str, size: int) -> dict[str, int]:
         """
+        调用 GDB -data-read-memory-bytes 读取区域，返回 { "0xaddr": byte_value, ... }。
+        若 size 较大则分块读取（每次最多 256 字节）再合并。
+        """
+        result: dict[str, int] = {}
+        chunk = 256
+        addr = int(start_addr, 16)
+        remaining = size
+        offset = 0
+        while remaining > 0:
+            count = min(remaining, chunk)
+            cmd = f"-data-read-memory-bytes {hex(addr + offset)} {count}"
+            response = self.gdbmi.write(cmd)
+            for r in response:
+                if r.get("type") != "result" or r.get("message") != "done":
+                    continue
+                payload = r.get("payload") or {}
+                for block in payload.get("memory", []):
+                    begin_hex = block.get("begin", "")
+                    contents_hex = block.get("contents", "")
+                    begin = int(begin_hex, 16)
+                    raw = bytes.fromhex(contents_hex) if contents_hex else b""
+                    for i, b in enumerate(raw):
+                        result[hex(begin + i)] = b
+                break
+            offset += count
+            remaining -= count
+        return result
 
-        :return:
-        """
+    def asm_step(self) -> ASMStep:
+        memory_delta: Optional[dict[str, int]] = None
+        if self._memory_watch_size > 0:
+            memory_before = self._read_memory_region(
+                self._memory_watch_start, self._memory_watch_size
+            )
+
         # step instruction
         response = self.gdbmi.write("-exec-step-instruction")
         for r in self._filter_type(response, "notify"):
@@ -140,6 +186,19 @@ class ALoader:
         else:
             # not in ASM file
             raise StopIteration
+
+        if self._memory_watch_size > 0:
+            memory_after = self._read_memory_region(
+                self._memory_watch_start, self._memory_watch_size
+            )
+            memory_delta = {
+                addr: memory_after[addr]
+                for addr in memory_after
+                if memory_before.get(addr) != memory_after[addr]
+            }
+            if not memory_delta:
+                memory_delta = None
+
         # get disassemble
         addr_pc = frame["addr"]
         disassemble = self.get_disassemble(addr_pc)
@@ -147,10 +206,16 @@ class ALoader:
         # get register values
         register_values = self.get_register_values()
 
-        # add lene number
+        # add line number
         self._line_counter += 1
 
-        return ASMStep(self._line_counter, addr_pc, disassemble=disassemble, register_values=register_values)
+        return ASMStep(
+            self._line_counter,
+            addr_pc,
+            disassemble=disassemble,
+            register_values=register_values,
+            memory_delta=memory_delta,
+        )
 
     def __next__(self):
         return self.asm_step()

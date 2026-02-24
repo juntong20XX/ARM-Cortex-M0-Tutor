@@ -6,12 +6,15 @@
 
 ## 目录结构
 
-| 文件 | 职责 |
+| 路径 | 职责 |
 |------|------|
-| `__init__.py` | 配置 `Config`、Invoke 任务（clean/setup/build/start_qemu/stop_qemu/debug）、模块导出 |
-| `asm_basic.py` | 汇编行解析：`ASMLine`、`ASMParam`、`ASMLineReader`（指令/参数正则） |
-| `connector.py` | GDB 连接与单步：`ALoader`（连 QEMU、单步、反汇编、读寄存器）、`ASMStep` |
-| `adl_models.py` | ADL v1 的 Pydantic 模型：`TraceResponse`、`TraceStep`、各类 `ADLEvent` 等 |
+| `__init__.py` | 模块统一导出：Config、Invoke 任务、汇编/单步类型、`adl_models` |
+| `connector/__init__.py` | 配置 `Config`、Invoke 任务（clean/setup/build/start_qemu/stop_qemu/debug）、汇编与单步类型导出 |
+| `connector/asm_basic.py` | 汇编行解析：`ASMLine`、`ASMParam`、`ASMLineReader`（指令/参数正则） |
+| `connector/connector.py` | GDB 连接与单步：`ALoader`（连 QEMU、单步、反汇编、读寄存器）、`ASMStep` |
+| `animation/adl_models.py` | ADL v1 的 Pydantic 模型：`TraceResponse`、`TraceStep`、各类 `ADLEvent` 等 |
+
+对外使用方式不变：所有类型与任务均从 `app.kernel` 导入，无需关心子包路径。
 
 ---
 
@@ -29,7 +32,8 @@ mapping = config.get_format_map()
 # mapping["build_path"], mapping["sockets_path"] 等可用
 ```
 
-常用字段：`SOURCE_DIR`、`PROJECT_DIR`、`BUILD_PATH`、`QEMU_BIN`、`GDB_BIN`、`TARGET_NAME`、`SOCKETS_PATH` 等。
+常用字段：`SOURCE_DIR`、`PROJECT_DIR`、`BUILD_PATH`、`QEMU_BIN`、`GDB_BIN`、`TARGET_NAME`、`SOCKETS_PATH` 等。  
+内存变化监视：`MEMORY_WATCH_START`（默认 `0x20000000`，Cortex-M0 microbit RAM 起始）、`MEMORY_WATCH_SIZE`（字节数，默认 512；设为 0 则不读内存，`ASMStep.memory_delta` 恒为 None）。
 
 ### 2. 汇编解析：`ASMLine`、`ASMParam`、`ASMLineReader`
 
@@ -53,6 +57,7 @@ code = line.to_code()                     # 转回可写入 asm.s 的字符串
   - `addr_pc`：PC 地址（十六进制字符串）
   - `disassemble`：当前 PC 附近反汇编 `( (address, ASMLine), ... )`
   - `register_values`：r0–r15 及 N/Z/C/V 的 `(name, value)` 元组序列
+  - `memory_delta`：本步发生变化的地址（hex 字符串）→ 新字节值（0–255）的映射；未启用内存监视或本步无变化时为 `None`。可直接赋给 ADL `StepSnapshot.memoryDelta`。
 
 ```python
 from app.kernel import Config, debug, start_qemu, build, ASMLineReader

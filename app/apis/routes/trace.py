@@ -2,7 +2,6 @@
 ADL trace 路由：返回符合 ADL v1 的 TraceResponse。
 见 web/src/animation/ADL_SPEC.md。
 """
-from .. import models
 from ...kernel import adl_models
 from ... import database as db
 

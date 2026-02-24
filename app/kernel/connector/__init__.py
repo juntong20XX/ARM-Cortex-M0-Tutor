@@ -23,7 +23,7 @@ class Config:
     # uuid
     uuid: str
     # project config
-    SOURCE_DIR: str = os.path.abspath(os.path.join(__file__, "..", "..", "..", "qemu_m0"))
+    SOURCE_DIR: str = os.path.abspath(os.path.join(__file__, "..", "..", "..", "kernel", "qemu_m0"))
     PROJECT_DIR: str = os.path.join(SOURCE_DIR, "..", "project-build")
     BUILD_PATH: str = "{PROJECT_DIR}/build-{uuid}"
     # QEMU 配置

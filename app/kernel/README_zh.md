@@ -116,7 +116,8 @@ resp = adl_models.TraceResponse(
 ## 依赖与环境
 
 - **QEMU**：需安装 `qemu-system-arm`，且支持 `-M microbit`（Cortex-M0）。
-- **GDB**：`arm-none-eabi-gdb`，支持 MI 接口。
+- **GCC**: `arm-none-eabi-gcc` 工具链（用于编译 `.s` 文件）。
+- **GDB**：`arm-none-eabi-gdb` (对于 debian, 是 `gdb-multiarch`)，支持 MI 接口。
 - **Python**：`pygdbmi`、`invoke`、`pydantic`（adl_models）。
 
 工程源码目录由 `Config.SOURCE_DIR` 指定，默认指向仓库内 `qemu_m0`；构建输出在 `PROJECT_DIR/build-{uuid}/`。

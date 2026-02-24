@@ -11,7 +11,8 @@ from app.kernel import Config, clean, setup, start_qemu, stop_qemu, build, qemu_
 
 # `setUP` cannot be used here, because it will be called before each test case.
 project_base = Path(__file__).parent.parent
-test_config = Config(SOURCE_DIR=str(project_base / "qemu_m0"), PROJECT_DIR=tempfile.mkdtemp(),
+test_config = Config(SOURCE_DIR=str(project_base / "app" / "kernel" / "qemu_m0"), PROJECT_DIR=tempfile.mkdtemp(),
+                     GDB_BIN="gdb-multiarch",
                      uuid=str(uuid.uuid4()))
 mock_context = Context()
 

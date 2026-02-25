@@ -2,9 +2,17 @@
 项目相关路由.
 
 XXX: 跳过权限认证.
+
+设计约定：
+- DBProject.source：仅保存原始汇编源代码文本；
+- DBProject.code：保存根据 source 解析得到的 ASMLine 序列化缓存（list[dict]）；
+- DBProject.executed：保存与当前 source/code 对应的执行轨迹缓存。
 """
+from dataclasses import asdict
+
 from ... import database as db
 from .. import models
+from ...kernel import ASMLineReader, ASMLine, ASMParam
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -34,6 +42,38 @@ def _setup_project_info(project: db.models.DBProject, simplified=False) -> model
     )
 
 
+def _source_to_asm_list_for_project(source: str) -> list[ASMLine]:
+    """
+    将项目的 source 文本解析为 ASMLine 列表。
+
+    - 忽略空行与以 ';' / '//' 开头的注释行；
+    - 任一有效代码行解析失败即抛出异常，由上层转换为 4xx 错误；
+    - 若无有效代码行，返回空列表（视为合法但无指令的程序）。
+    """
+    reader = ASMLineReader()
+    lines: list[ASMLine] = []
+
+    if not source:
+        return []
+
+    for raw in source.splitlines():
+        line = raw.strip()
+        if not line or line.startswith(";") or line.startswith("//"):
+            continue
+        # ASMLineReader.load 可能抛出 AssertionError / ValueError，交由调用方处理
+        asm = reader.load(line)
+        lines.append(asm)
+
+    return lines
+
+
+def _asm_list_to_serializable(asm_list: list[ASMLine]) -> list[dict]:
+    """
+    将 ASMLine 列表转换为可 JSON 序列化的结构，用于存入 DBProject.code。
+    """
+    return [asdict(asm) for asm in asm_list]
+
+
 @router.get("/project/info/{project_uuid}", response_model=models.ProjectInfo)
 async def get_project_info(project_uuid: str):
     """
@@ -54,16 +94,33 @@ async def get_project_info(project_uuid: str):
 @router.put("/project/source/{project_uuid}", response_model=models.BaseResponse)
 async def update_project_source(project_uuid: str, body: models.ProjectSourceUpdate):
     """
-    更新项目源代码
+    更新项目源代码；解析成功后同步刷新 code（ASMLine 序列化缓存），并清空 executed。
+
     :param project_uuid: 项目 UUID
     :param body: 包含新源代码的请求体
     :return: 操作结果
     :raise HTTPException: 项目未找到
     """
+    try:
+        asm_list = _source_to_asm_list_for_project(body.source)
+    except (AssertionError, ValueError) as e:
+        # 源码无法解析为合法 ASM 序列：返回 400，保持 source/code/executed 不变
+        logger.exception("invalid assembly source when updating project %s", project_uuid)
+        raise HTTPException(status_code=400, detail="Invalid assembly source") from e
+
+    code_payload = _asm_list_to_serializable(asm_list)
+
     with db.db_context() as session:
         try:
-            db.update_project(session, project_uuid, source=body.source, commit=True)
-            return models.BaseResponse(success=True, msg="Source updated successfully")
+            db.update_project(
+                session,
+                project_uuid,
+                source=body.source,
+                code=code_payload,
+                executed=[],  # 旧执行轨迹与新代码不再对应
+                commit=True,
+            )
+            return models.BaseResponse(success=True, msg="Source and code updated successfully")
         except KeyError as e:
             raise HTTPException(status_code=404, detail=str(e))
 
@@ -79,6 +136,15 @@ async def create_project(request: Request, project_info: models.ProjectInfo):
     user_uuid = user.get("uuid")
     if not user_uuid:
         raise HTTPException(status_code=401, detail="Please login first")
+    # 先根据 source 解析并生成 code 缓存；解析失败时直接返回 400，不创建项目
+    code_payload: list = []
+    try:
+        asm_list = _source_to_asm_list_for_project(project_info.source)
+        code_payload = _asm_list_to_serializable(asm_list)
+    except (AssertionError, ValueError) as e:
+        logger.exception("invalid assembly source when creating project %s", project_info.name)
+        raise HTTPException(status_code=400, detail="Invalid assembly source") from e
+
     with db.db_context() as session:
         user_list = db.find_user_by_uuid(session, user_uuid)
         if not user_list:
@@ -91,7 +157,7 @@ async def create_project(request: Request, project_info: models.ProjectInfo):
             user_obj.uuid,
             project_info.description,
             project_info.source,
-            project_info.code if project_info.code is not None else [],
+            code_payload,
         )
     return JSONResponse(
         status_code=201,

@@ -1,13 +1,124 @@
 """
 ADL trace 路由：返回符合 ADL v1 的 TraceResponse。
 见 web/src/animation/ADL_SPEC.md。
+
+设计约定：
+- Project.source：仅保存原始汇编源代码文本。
+- Project.code：保存由 Project.source 解析得到的 ASMLine 序列化缓存（list[dict]），由本模块等逻辑在解析成功后写回。
 """
-from ...kernel import adl_models
+import asyncio
+import logging
+from dataclasses import asdict
+
+from invoke import Context
+
+from ...kernel import (
+    adl_models,
+    Config,
+    setup,
+    build,
+    start_qemu,
+    stop_qemu,
+    debug,
+    ASMLineReader,
+    ASMLine,
+    ASMParam,
+    asm_steps_to_trace_response,
+)
 from ... import database as db
 
 from fastapi import APIRouter, HTTPException
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["trace"])
+
+# 单次 trace 最大步数，防止过长或死循环
+MAX_TRACE_STEPS = 1000
+
+
+def _source_to_asm_list(source: str) -> list[ASMLine] | None:
+    """
+    将 project.source 解析为 ASMLine 列表；失败或空返回 None。
+
+    成功解析后会在上层逻辑中将 ASMLine 列表序列化写入 Project.code 作为缓存。
+    """
+    if not source or not source.strip():
+        return None
+    reader = ASMLineReader()
+    lines: list[ASMLine] = []
+    for raw in source.strip().splitlines():
+        line = raw.strip()
+        if not line or line.startswith(";") or line.startswith("//"):
+            continue
+        try:
+            lines.append(reader.load(line))
+        except Exception:
+            return None
+    return lines if lines else None
+
+
+def _asm_list_to_serializable(asm_list: list[ASMLine]) -> list[dict]:
+    """将 ASMLine 列表转换为可 JSON 序列化的结构，用于存入 Project.code。"""
+    return [asdict(asm) for asm in asm_list]
+
+
+def _code_to_asm_list(code: list) -> list[ASMLine] | None:
+    """
+    将存储在 Project.code 中的序列化 ASMLine 列表还原为 ASMLine 对象列表。
+    预期结构来自 dataclasses.asdict(ASMLine)，字段名需与 ASMLine / ASMParam 一致。
+
+    - code 为空或结构不兼容时返回 None，不抛异常，交由上层决定是否回退到 source。
+    """
+    if not code:
+        return None
+    try:
+        asm_list: list[ASMLine] = []
+        for item in code:
+            p = item.get("param") or {"text": "", "type_name": ""}
+            p1 = item.get("param_1") or {"text": "", "type_name": ""}
+            p2 = item.get("param_2") or {"text": "", "type_name": ""}
+            asm = ASMLine(
+                basic=item["basic"],
+                condition=item["condition"],
+                param=ASMParam(**p),
+                param_1=ASMParam(**p1),
+                param_2=ASMParam(**p2),
+            )
+            asm_list.append(asm)
+        return asm_list if asm_list else None
+    except Exception:
+        return None
+
+
+def _run_trace_pipeline_sync(project_uuid: str, asm_list: list[ASMLine], max_steps: int = MAX_TRACE_STEPS) -> list:
+    """
+    同步执行 kernel 流水线并收集 ASMStep（阻塞）。
+    顺序：setup → build → debug(pre=start_qemu) → 迭代 ALoader → stop_qemu，返回 steps。
+    """
+    from ...kernel.connector.connector import ASMStep
+
+    config = Config(uuid=project_uuid)
+    c = Context()
+    loader = None
+    try:
+        setup(c, config, asm_list)
+        build(c, config)
+        loader = debug(c, config)
+        steps: list[ASMStep] = []
+        for _ in range(max_steps):
+            step = next(loader)
+            steps.append(step)
+        return steps
+    finally:
+        if loader is not None:
+            try:
+                loader.exit()
+            except Exception:
+                pass
+        try:
+            stop_qemu(c, config)
+        except Exception:
+            pass
 
 
 def _example_trace_response() -> adl_models.TraceResponse:
@@ -83,17 +194,10 @@ def _example_trace_response() -> adl_models.TraceResponse:
     )
 
 
-@router.get("/trace/{project_uuid}", response_model=adl_models.TraceResponse)
-async def get_trace(project_uuid: str):
-    """
-    返回 ADL v1 的 TraceResponse（当前为静态示例）。
-    前端 Demo 据此驱动代码高亮、寄存器、画布与箭头动画。
-    """
-    with db.db_context() as session:
-        projects = db.find_project_by_uuid(session, project_uuid)
-        if not projects:
-            return _example_trace_response()
-        project = projects[0]
+@router.get("/trace", response_model=adl_models.TraceResponse)
+async def get_trace_example():
+    """无 project_uuid 时返回静态示例，供前端 Demo 与测试使用。"""
+    return _example_trace_response()
 
 
 @router.get("/trace/stream")
@@ -105,3 +209,55 @@ async def get_trace_stream():
         status_code=501,
         detail="Streaming trace not implemented yet. Use GET /api/trace for batch.",
     )
+
+
+@router.get("/trace/{project_uuid}", response_model=adl_models.TraceResponse)
+async def get_trace(project_uuid: str):
+    """
+    返回 ADL v1 的 TraceResponse。
+
+    - 正常情况下优先使用 Project.code（由 project 路由维护的 ASMLine 序列化缓存）恢复 ASMLine；
+    - 当 code 为空或结构不兼容时，回退使用 Project.source 解析，并在成功后刷新 Project.code；
+    - 若均不可用，则回退为静态示例。
+    """
+    with db.db_context() as session:
+        projects = db.find_project_by_uuid(session, project_uuid)
+        if not projects:
+            return _example_trace_response()
+        project = projects[0]
+
+    # 1. 优先从 Project.code 反序列化 ASMLine 列表
+    asm_list = _code_to_asm_list(project.code)
+
+    # 2. 若 code 不可用，再回退使用 source 解析，并顺便刷新 code 缓存
+    if asm_list is None:
+        asm_list = _source_to_asm_list(project.source or "")
+        if asm_list is None:
+            return _example_trace_response()
+        try:
+            with db.db_context() as session:
+                db.update_project(
+                    session,
+                    project_uuid,
+                    code=_asm_list_to_serializable(asm_list),
+                    commit=True,
+                )
+        except Exception:
+            logger.exception(
+                "failed to refresh cached ASM code for project %s", project_uuid
+            )
+
+    try:
+        steps = await asyncio.to_thread(
+            _run_trace_pipeline_sync,
+            project.uuid,
+            asm_list,
+            MAX_TRACE_STEPS,
+        )
+    except Exception as e:
+        logger.exception("trace pipeline failed for project %s: %s", project_uuid, e)
+        return _example_trace_response()
+
+    if not steps:
+        return _example_trace_response()
+    return asm_steps_to_trace_response(steps)

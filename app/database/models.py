@@ -240,14 +240,22 @@ class DBUser(DBBase):
 class DBProject(DBBase):
     """
     Project Model for database.
+
+    设计约定：
+    - source：仅保存原始汇编源代码文本。
+    - code：保存由 source 解析得到的 ASMLine 序列化缓存（list[dict]），由上层逻辑在解析成功后写回。
+    - executed：保存单步执行产生的快照/事件等序列化结果。
     """
     __tablename__ = "projects"
 
     uuid: Mapped[str] = mapped_column(String(36), primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    # 原始汇编源代码（多行文本）
     source: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # 序列化后的 list[ASMLine]，由 source 解析成功后写回，用作缓存/调试
     code: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    # 单步执行数据的序列化结果（例如寄存器快照、内存变化、事件等）
     executed: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     description: Mapped[Optional[str]] = mapped_column(String(500))  # 可选字段
 

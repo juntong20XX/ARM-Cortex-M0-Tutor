@@ -173,6 +173,22 @@ def asm_steps_to_trace_response(steps: list["ASMStep"]) -> adl_models.TraceRespo
             steps=[],
         )
 
+    # 尝试过滤掉模板中的尾部 `bx lr` 指令对应的最后一步：
+    # - 该指令固定由运行时模板追加；
+    # - 为了避免误删用户手写的 `bx lr`，仅当它出现在最后一条反汇编指令且 basic == "bx" 时才过滤。
+    last = steps[-1]
+    last_asm_line = _get_current_asm_line(last)
+    if last_asm_line is not None and last_asm_line.basic == "bx":
+        steps = steps[:-1]
+
+    if not steps:
+        return adl_models.TraceResponse(
+            adlVersion=1,
+            code=None,
+            initialState=None,
+            steps=[],
+        )
+
     first = steps[0]
     if not isinstance(first, ASMStep):
         raise TypeError("steps must be a list of ASMStep")

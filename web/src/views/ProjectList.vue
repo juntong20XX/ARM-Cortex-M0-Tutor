@@ -26,36 +26,21 @@ const editForm = ref({ name: '', description: '', content: '', source: '' })
 const deletingUuid = ref('')
 const deleteError = ref('')
 
-const demoProjects = [
-  {
-    id: 'demo-blinky',
-    name: 'Blinky LED',
-    description: 'Classic ARM Cortex-M0 getting-started example demonstrating GPIO configuration and delay loops.',
-    level: 'Beginner',
-    tags: ['GPIO', 'basic'],
-  },
-  {
-    id: 'demo-systick',
-    name: 'SysTick Timer',
-    description: 'Use the SysTick timer to generate periodic interrupts and observe register changes.',
-    level: 'Intermediate',
-    tags: ['timer', 'interrupt'],
-  },
-  {
-    id: 'demo-uart',
-    name: 'UART Echo',
-    description: 'Echo data over UART to practice peripheral initialization and simple protocols.',
-    level: 'Intermediate',
-    tags: ['UART', 'peripheral'],
-  },
-]
+// 内置的简单 demo 项目：用于在无真实项目时提供一个入口
+const simpleDemoProject = {
+  id: 'demo-simple',
+  name: 'Assembly Demo',
+  description: 'Try the built-in Cortex-M0 assembly demo without creating a project.',
+  level: 'Demo',
+  tags: ['demo'],
+}
 
-/** 当前用于展示的列表：接口成功用 projects，失败用 demoProjects */
+/** 当前用于展示的列表：有真实项目时展示项目，否则展示一个内置 demo */
 const displayProjects = computed(() => {
   if (projects.value && projects.value.length > 0) {
     return projects.value
   }
-  return demoProjects
+  return [simpleDemoProject]
 })
 
 function getProjectListFromResponse(payload) {
@@ -93,9 +78,10 @@ function getProjectLink(project) {
   }
   const name = project.name || project.title || project.id
   if (name) {
-    return { path: '/demo', query: { project: name } }
+    // 无项目 UUID 的情况统一跳转到前端内嵌 demo 视图
+    return { path: '/demo/embed', query: { project: name } }
   }
-  return { path: '/demo' }
+  return { path: '/demo/embed' }
 }
 
 async function loadProjects() {
@@ -117,15 +103,16 @@ async function loadProjects() {
     const json = await res.json()
     const list = getProjectListFromResponse(json)
 
-    if (!list || !Array.isArray(list) || list.length === 0) {
-      throw new Error('Invalid or empty project list')
+    if (!list || !Array.isArray(list)) {
+      throw new Error('Invalid project list')
     }
 
+    // 允许空列表：此时前端显示“暂无项目”，不再展示本地 demo
     projects.value = list
   } catch (err) {
     console.error('[ProjectList] Failed to load project list:', err)
     loadError.value = true
-    projects.value = demoProjects
+    projects.value = []
   } finally {
     loading.value = false
   }
@@ -439,10 +426,14 @@ onMounted(() => {
 
     <div v-else class="content">
       <p v-if="loadError" class="state state-error">
-        Failed to load the project list from the server. Showing a local demo project instead.
+        Failed to load the project list from the server.
       </p>
 
-      <div class="project-grid">
+      <p v-else-if="!displayProjects.length" class="state">
+        No projects yet. Click “New Project” to create your first project.
+      </p>
+
+      <div v-else class="project-grid">
         <article
           v-for="project in displayProjects"
           :key="project.uuid || project.id || project.name || project.title"

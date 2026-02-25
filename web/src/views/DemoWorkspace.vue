@@ -106,7 +106,7 @@
           <template #header>
             <div class="card-header">
               <span>Registers</span>
-              <el-tag size="small" type="info">R1 = R0 + 2</el-tag>
+              <el-tag size="small" type="info">R0 = R1 + 0x5, R1 = 5</el-tag>
             </div>
           </template>
           <div class="registers-grid">
@@ -199,7 +199,10 @@ const props = withDefaults(
   { initialCode: undefined, projectUuid: undefined, allowSave: true }
 )
 
-const defaultCode = '\nMOV r0, #1\n\nADD r0, r1\n'
+const defaultCode =
+  'ldr r1, =0x255\n' +
+  'adds r0, r1, #0x5\n' +
+  'MOVS r1, #5'
 const code = ref(props.initialCode ?? defaultCode)
 
 const saving = ref(false)
@@ -284,7 +287,7 @@ const setLineRef = (el, index) => {
 const registers = ref(
   Array.from({ length: 16 }, (_, i) => ({
     name: `R${i}`,
-    value: i === 0 ? 1 : 0,
+    value: 0,
     status: '' // 'read' | 'write' | ''
   }))
 )
@@ -864,37 +867,56 @@ onUnmounted(() => {
   document.removeEventListener('mouseup', stopDrag)
 })
 
-// Mock trace for when backend is not available (ADL-driven demo)
+// Mock trace for demo mode (ADL-driven demo, frontend only)
 const MOCK_TRACE = {
   adlVersion: ADL_VERSION,
   code: [
-    { text: '', addr: '0x0000' },
-    { text: 'MOV 1 r0', addr: '0x0000' },
-    { text: '', addr: '' },
-    { text: 'ADD 2 r0 r1', addr: '0x0006' }
+    { text: 'ldr r1, =0x255', addr: '0x0000' },
+    { text: 'adds r0, r1, #0x5', addr: '0x0002' },
+    { text: 'MOVS r1, #5', addr: '0x0004' }
   ],
   initialState: {
-    registers: { r0: '0x1', r1: '0x0', r2: '0x0', r3: '0x0', r4: '0x0', r5: '0x0', r6: '0x0', r7: '0x0', r8: '0x0', r9: '0x0', r10: '0x0', r11: '0x0', r12: '0x0', r13: '0x0', r14: '0x0', r15: '0x0' },
+    registers: { r0: '0x0', r1: '0x0', r2: '0x0', r3: '0x0', r4: '0x0', r5: '0x0', r6: '0x0', r7: '0x0', r8: '0x0', r9: '0x0', r10: '0x0', r11: '0x0', r12: '0x0', r13: '0x0', r14: '0x0', r15: '0x0' },
     flags: { N: 0, Z: 0, C: 0, V: 0 }
   },
   steps: [
     {
-      snapshot: { pc: '0x0006', lineCounter: 3, registers: { r0: '0x1', r1: '0x0' }, flags: { N: 0, Z: 0, C: 0, V: 0 } },
+      snapshot: { pc: '0x0000', lineCounter: 1, registers: { r0: '0x0', r1: '0x0' }, flags: { N: 0, Z: 0, C: 0, V: 0 } },
       events: [
-        { type: 'SetActiveLine', by: 'index', value: 3 },
+        { type: 'SetActiveLine', by: 'index', value: 0 },
         { type: 'FocusCanvas', target: 'CU' },
-        { type: 'OverlayArrow', from: { kind: 'CodeLineAddr', lineIndex: 3 }, to: { kind: 'CanvasComponent', id: 'CU' }, text: 'Decode: ADD #2, R0 → R1' },
-        { type: 'MarkRegister', reg: 'R0', mode: 'read' },
-        { type: 'OverlayArrow', from: { kind: 'CodeLineAddr', lineIndex: 3 }, to: { kind: 'RegisterRow', reg: 'R0' }, text: 'Read R0 = 1' },
+        { type: 'OverlayArrow', from: { kind: 'CodeLineAddr', lineIndex: 0 }, to: { kind: 'CanvasComponent', id: 'CU' }, text: 'Decode: LDR r1, =0x255' },
         { type: 'Wait', ms: 1000 }
       ]
     },
     {
-      snapshot: { pc: '0x0008', lineCounter: 3, registers: { r0: '0x1', r1: '0x3' }, flags: { N: 0, Z: 0, C: 0, V: 0 } },
+      snapshot: { pc: '0x0002', lineCounter: 2, registers: { r0: '0x0', r1: '0x255' }, flags: { N: 0, Z: 0, C: 0, V: 0 } },
       events: [
+        { type: 'FocusCanvas', target: 'REG' },
+        { type: 'OverlayArrow', from: { kind: 'CanvasComponent', id: 'REG' }, to: { kind: 'RegisterRow', reg: 'R1' }, text: 'Load R1 = 0x255' },
+        { type: 'MarkRegister', reg: 'R1', mode: 'write' },
+        { type: 'Wait', ms: 1000 }
+      ]
+    },
+    {
+      snapshot: { pc: '0x0004', lineCounter: 3, registers: { r0: '0x25A', r1: '0x255' }, flags: { N: 0, Z: 0, C: 0, V: 0 } },
+      events: [
+        { type: 'SetActiveLine', by: 'index', value: 1 },
         { type: 'FocusCanvas', target: 'ALU' },
-        { type: 'OverlayArrow', from: { kind: 'CanvasComponent', id: 'ALU' }, to: { kind: 'RegisterRow', reg: 'R1' }, text: 'ALU: 1 + 2 = 3' },
-        { type: 'MarkRegister', reg: 'R0', mode: 'clear' },
+        { type: 'OverlayArrow', from: { kind: 'CodeLineAddr', lineIndex: 1 }, to: { kind: 'CanvasComponent', id: 'ALU' }, text: 'ADDS r0, r1, #0x5' },
+        { type: 'MarkRegister', reg: 'R1', mode: 'read' },
+        { type: 'OverlayArrow', from: { kind: 'CanvasComponent', id: 'ALU' }, to: { kind: 'RegisterRow', reg: 'R0' }, text: 'ALU: 0x255 + 0x5 = 0x25A' },
+        { type: 'MarkRegister', reg: 'R1', mode: 'clear' },
+        { type: 'MarkRegister', reg: 'R0', mode: 'write' },
+        { type: 'Wait', ms: 1000 }
+      ]
+    },
+    {
+      snapshot: { pc: '0x0006', lineCounter: 4, registers: { r0: '0x25A', r1: '0x5' }, flags: { N: 0, Z: 0, C: 0, V: 0 } },
+      events: [
+        { type: 'SetActiveLine', by: 'index', value: 2 },
+        { type: 'FocusCanvas', target: 'REG' },
+        { type: 'OverlayArrow', from: { kind: 'CodeLineAddr', lineIndex: 2 }, to: { kind: 'RegisterRow', reg: 'R1' }, text: 'MOVS r1, #5' },
         { type: 'MarkRegister', reg: 'R1', mode: 'write' },
         { type: 'Wait', ms: 1000 }
       ]
@@ -903,10 +925,12 @@ const MOCK_TRACE = {
 } as TraceResponse
 
 async function fetchTrace(): Promise<TraceResponse | null> {
+  // Only project mode (with projectUuid) is allowed to request backend trace.
+  if (!props.projectUuid) {
+    return null
+  }
   try {
-    const url = props.projectUuid
-      ? `/api/project/trace?uuid=${encodeURIComponent(props.projectUuid)}`
-      : '/api/trace'
+    const url = `/api/project/trace?uuid=${encodeURIComponent(props.projectUuid)}`
     const res = await fetch(url, { method: 'GET', credentials: 'include' })
     if (!res.ok) return null
     const data = await res.json()
@@ -935,8 +959,21 @@ async function runTraceAnimation(trace: TraceResponse) {
   setTimeout(() => { currentStepText.value = '' }, 2000)
 }
 
+async function runDemoFromMockTrace() {
+  // Frontend-only demo animation using ADL MOCK_TRACE
+  await runTraceAnimation(MOCK_TRACE)
+}
+
 const runDemo = async () => {
   if (isAnimating.value) return
+
+  // Demo mode (no projectUuid): frontend-only animation, no backend calls.
+  if (!props.projectUuid) {
+    await runDemoFromMockTrace()
+    return
+  }
+
+  // Project mode: try backend trace first, fall back to handcrafted demo.
   const trace = await fetchTrace()
   if (trace) {
     await runTraceAnimation(trace)

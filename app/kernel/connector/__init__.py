@@ -8,7 +8,7 @@ import os
 import time
 import signal
 import subprocess
-from typing import Iterable
+from typing import Iterable, Optional
 from dataclasses import dataclass, asdict
 
 from pygdbmi import gdbcontroller
@@ -64,13 +64,13 @@ def clean(c: Context, config: Config):
 
 
 @task
-def setup(c: Context, config: Config, asm_list: Iterable[ASMLine]):
+def setup(c: Context, config: Config, asm_list: Optional[Iterable[ASMLine]] = None):
     """
     setup project dir
     - make project dir
     - make build dir
     - copy source files to project dir
-    - setup asm file
+    - setup asm file (only when asm_list is provided; when None, skip to avoid overwriting)
     """
     mapping = config.get_format_map()
     if not os.path.exists(mapping["PROJECT_DIR"]):
@@ -79,14 +79,14 @@ def setup(c: Context, config: Config, asm_list: Iterable[ASMLine]):
         os.makedirs(mapping["build_path"])
     c.run(f"cp -r '{config.SOURCE_DIR}'/* '{config.PROJECT_DIR}'")
 
-    # setup asm file
-    asm_file_path = os.path.join(mapping["PROJECT_DIR"], "asm.s")
-    with open(asm_file_path, "r", encoding="utf-8") as asm_file:
-        asm_file_text = asm_file.read()
-    text_list = [line.to_code() for line in asm_list]
-    asm_file_text = asm_file_text.format(CODE_HERE="\n".join(text_list))
-    with open(asm_file_path, "w", encoding="utf-8") as asm_file:
-        asm_file.write(asm_file_text)
+    if asm_list is not None:
+        asm_file_path = os.path.join(mapping["PROJECT_DIR"], "asm.s")
+        with open(asm_file_path, "r", encoding="utf-8") as asm_file:
+            asm_file_text = asm_file.read()
+        text_list = [line.to_code() for line in asm_list]
+        asm_file_text = asm_file_text.format(CODE_HERE="\n".join(text_list))
+        with open(asm_file_path, "w", encoding="utf-8") as asm_file:
+            asm_file.write(asm_file_text)
 
 
 @task(pre=[setup])

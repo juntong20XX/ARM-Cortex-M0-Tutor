@@ -5,7 +5,6 @@ import ProjectList from '../views/ProjectList.vue'
 import ConfigView from '../views/ConfigView.vue'
 import LoginView from '../views/Login.vue'
 import LoginOAuthView from '../views/LoginOAuth.vue'
-import DemoView from '../views/Demo.vue'
 import DemoEmbedView from '../views/DemoEmbedView.vue'
 import ProjectWorkspaceView from '../views/ProjectWorkspaceView.vue'
 import { useSession } from '../composables/useSession'
@@ -18,7 +17,6 @@ const router = createRouter({
     { path: '/project/workspace', name: 'project-workspace', component: ProjectWorkspaceView, props: true },
     { path: '/project', redirect: '/project/list' },
     { path: '/config', name: 'config', component: ConfigView },
-    { path: '/demo', name: 'demo', component: DemoView },
     { path: '/demo/embed', name: 'demo-embed', component: DemoEmbedView },
     { path: '/login', name: 'login', component: LoginView },
     {

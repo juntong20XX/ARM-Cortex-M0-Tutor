@@ -13,7 +13,7 @@
         <router-link to="/project/list" class="back-link">← Project list</router-link>
         <h1 class="workspace-title">{{ project.name }}</h1>
       </header>
-      <DemoWorkspace :initial-code="project.content" :project-uuid="project.uuid" />
+      <DemoWorkspace :initial-code="project.content" :project-uuid="project.uuid" :allow-save="false" />
     </template>
   </div>
 </template>
@@ -81,9 +81,9 @@ async function loadProject(uuid: string) {
     }).catch(() => {})
     // #endregion
     const mergedContent =
-      (typeof data.content === 'string' && data.content.length > 0)
-        ? data.content
-        : (typeof data.source === 'string' ? data.source : '')
+      (typeof data.source === 'string' && data.source.length > 0)
+        ? data.source
+        : (typeof data.content === 'string' ? data.content : '')
 
     project.value = {
       uuid: data.uuid,

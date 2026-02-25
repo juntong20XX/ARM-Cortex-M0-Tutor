@@ -8,6 +8,15 @@
         <el-button type="primary" size="small" @click="runDemo" :disabled="isAnimating">
           <el-icon><VideoPlay /></el-icon> Run
         </el-button>
+        <el-button
+          v-if="projectUuid && allowSave"
+          type="success"
+          size="small"
+          :disabled="saving || isAnimating"
+          @click="saveProjectSource"
+        >
+          {{ saving ? 'Saving...' : 'Save' }}
+        </el-button>
         <el-tag v-if="currentStepText" type="warning" class="step-info">{{ currentStepText }}</el-tag>
       </div>
       <div class="editor-wrapper" :style="{ height: editorHeight + 'px' }">
@@ -185,12 +194,52 @@ const props = withDefaults(
   defineProps<{
     initialCode?: string
     projectUuid?: string
+    allowSave?: boolean
   }>(),
-  { initialCode: undefined, projectUuid: undefined }
+  { initialCode: undefined, projectUuid: undefined, allowSave: true }
 )
 
 const defaultCode = '\nMOV r0, #1\n\nADD r0, r1\n'
 const code = ref(props.initialCode ?? defaultCode)
+
+const saving = ref(false)
+const saveError = ref('')
+const lastSavedAt = ref<string | null>(null)
+
+async function saveProjectSource() {
+  if (!props.projectUuid) {
+    ElMessage.warning('No project linked; cannot save.')
+    return
+  }
+  saving.value = true
+  saveError.value = ''
+  try {
+    const res = await fetch(
+      '/api/project/source/' + encodeURIComponent(props.projectUuid),
+      {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ source: code.value }),
+      }
+    )
+    const data = await res.json().catch(() => ({}))
+    if (res.ok && (data as { success?: boolean }).success !== false) {
+      lastSavedAt.value = new Date().toISOString()
+      ElMessage.success('Project source saved.')
+    } else {
+      const msg = (data as { detail?: string }).detail || (data as { msg?: string }).msg || `Save failed (${res.status})`
+      ElMessage.error(msg)
+      saveError.value = msg
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Network error'
+    ElMessage.error(msg)
+    saveError.value = msg
+  } finally {
+    saving.value = false
+  }
+}
 
 watch(
   () => props.initialCode,

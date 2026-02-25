@@ -56,6 +56,15 @@ class ProjectSourceUpdate(BaseModel):
     source: str
 
 
+class ProjectUpdateRequest(BaseModel):
+    """
+    更新项目元信息（名称、描述、内容）的请求模型，字段均为可选。
+    """
+    name: str | None = None
+    description: str | None = None
+    content: str | None = None
+
+
 class BaseResponse(BaseModel):
     """
     通用响应模型

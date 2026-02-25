@@ -17,6 +17,15 @@ const createForm = ref({
   source: '',
 })
 
+const showEditForm = ref(false)
+const editing = ref(false)
+const editError = ref('')
+const editTargetUuid = ref('')
+const editForm = ref({ name: '', description: '', content: '', source: '' })
+
+const deletingUuid = ref('')
+const deleteError = ref('')
+
 const demoProjects = [
   {
     id: 'demo-blinky',
@@ -133,6 +142,113 @@ function closeCreateForm() {
   showCreateForm.value = false
   createError.value = ''
   createSuccess.value = false
+}
+
+async function openEditForm(project) {
+  if (!project || !project.uuid) return
+  closeCreateForm()
+  showEditForm.value = true
+  editError.value = ''
+  editTargetUuid.value = project.uuid
+  editForm.value = {
+    name: project.name ?? '',
+    description: project.description ?? '',
+    content: project.content ?? '',
+    source: '',
+  }
+  try {
+    const res = await fetch('/api/project/info/' + encodeURIComponent(project.uuid), {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      credentials: 'include',
+    })
+    if (res.ok) {
+      const data = await res.json()
+      editForm.value.source = (data.source || '').toString()
+    }
+  } catch (err) {
+    console.error('[ProjectList] Failed to load project source for edit:', err)
+  }
+}
+
+function closeEditForm() {
+  showEditForm.value = false
+  editError.value = ''
+  editForm.value = { name: '', description: '', content: '', source: '' }
+}
+
+async function submitEditProject() {
+  const { name, description, content, source } = editForm.value
+  if (!name || !name.trim()) {
+    editError.value = 'Please enter a project name'
+    return
+  }
+  editing.value = true
+  editError.value = ''
+  try {
+    const uuid = editTargetUuid.value
+    const metaRes = await fetch('/api/project/update/' + encodeURIComponent(uuid), {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        name: name.trim(),
+        description: (description || '').trim() || null,
+        content: (content || '').trim() || null,
+      }),
+    })
+    if (!metaRes.ok) {
+      const data = await metaRes.json().catch(() => ({}))
+      editError.value = data.detail || data.msg || `Update failed (${metaRes.status})`
+      return
+    }
+
+    const sourceRes = await fetch('/api/project/source/' + encodeURIComponent(uuid), {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ source: (source || '').toString() }),
+    })
+    if (!sourceRes.ok) {
+      const data = await sourceRes.json().catch(() => ({}))
+      editError.value = data.detail || data.msg || `Update source failed (${sourceRes.status})`
+      return
+    }
+
+    closeEditForm()
+    await loadProjects()
+  } catch (err) {
+    console.error('[ProjectList] Edit project failed:', err)
+    editError.value = err.message || 'Network error'
+  } finally {
+    editing.value = false
+  }
+}
+
+async function deleteProject(project) {
+  if (!project || !project.uuid) return
+  const title = getProjectTitle(project)
+  if (!window.confirm(`Delete project "${title}"? This cannot be undone.`)) return
+  deletingUuid.value = project.uuid
+  deleteError.value = ''
+  try {
+    const res = await fetch('/api/project/delete/' + encodeURIComponent(project.uuid), {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    })
+    if (res.ok) {
+      await loadProjects()
+    } else {
+      const data = await res.json().catch(() => ({}))
+      deleteError.value = data.detail || data.msg || `Delete failed (${res.status})`
+    }
+  } catch (err) {
+    console.error('[ProjectList] Delete project failed:', err)
+    deleteError.value = err.message || 'Network error'
+  } finally {
+    deletingUuid.value = ''
+  }
 }
 
 async function submitCreateProject() {
@@ -258,6 +374,64 @@ onMounted(() => {
       </form>
     </div>
 
+    <div v-if="showEditForm" class="create-form-wrap">
+      <h3 class="create-form-title">Edit Project</h3>
+      <form class="create-form" @submit.prevent="submitEditProject">
+        <div class="form-row">
+          <label for="edit-name">Project Name <span class="required">*</span></label>
+          <input
+            id="edit-name"
+            v-model="editForm.name"
+            type="text"
+            placeholder="e.g. Blinky LED"
+            class="form-input"
+            required
+          />
+        </div>
+        <div class="form-row">
+          <label for="edit-description">Description</label>
+          <input
+            id="edit-description"
+            v-model="editForm.description"
+            type="text"
+            placeholder="Brief description of the project"
+            class="form-input"
+          />
+        </div>
+        <div class="form-row">
+          <label for="edit-content">Content Description</label>
+          <textarea
+            id="edit-content"
+            v-model="editForm.content"
+            placeholder="Project description or tutorial content (optional)"
+            class="form-input form-textarea"
+            rows="2"
+          />
+        </div>
+        <div class="form-row">
+          <label for="edit-source">Assembly Source</label>
+          <textarea
+            id="edit-source"
+            v-model="editForm.source"
+            placeholder="Edit project assembly source code (optional)"
+            class="form-input form-textarea form-source"
+            rows="6"
+          />
+        </div>
+        <p v-if="editError" class="state state-error">{{ editError }}</p>
+        <div class="form-actions">
+          <button type="button" class="secondary-button" @click="closeEditForm">
+            Cancel
+          </button>
+          <button type="submit" class="primary-button" :disabled="editing">
+            {{ editing ? 'Saving...' : 'Save changes' }}
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <p v-if="deleteError" class="state state-error">{{ deleteError }}</p>
+
     <div v-if="loading" class="state state-loading">
       <div class="spinner" />
       <p>Loading project list...</p>
@@ -300,6 +474,23 @@ onMounted(() => {
             >
               Open project
             </RouterLink>
+            <template v-if="project.uuid">
+              <button
+                type="button"
+                class="secondary-button"
+                @click="openEditForm(project)"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                class="danger-button"
+                :disabled="deletingUuid === project.uuid"
+                @click="deleteProject(project)"
+              >
+                {{ deletingUuid === project.uuid ? 'Deleting...' : 'Delete' }}
+              </button>
+            </template>
           </footer>
         </article>
       </div>
@@ -543,7 +734,29 @@ onMounted(() => {
 .project-footer {
   margin-top: 4px;
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 8px;
+}
+
+.danger-button {
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: #dc2626;
+  border: 1px solid #b91c1c;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.danger-button:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.danger-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 .primary-button {

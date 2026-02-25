@@ -165,6 +165,70 @@ async def create_project(request: Request, project_info: models.ProjectInfo):
     )
 
 
+@router.put("/project/update/{project_uuid}", response_model=models.BaseResponse)
+async def update_project_meta(request: Request, project_uuid: str, body: models.ProjectUpdateRequest):
+    """
+    更新项目元信息（名称、描述、content）。需已登录且只能修改自己拥有的项目。
+    """
+    user = request.session.get("user")
+    if not user or not isinstance(user, dict):
+        raise HTTPException(status_code=401, detail="Please login first")
+    user_uuid = user.get("uuid")
+    if not user_uuid:
+        raise HTTPException(status_code=401, detail="Please login first")
+
+    with db.db_context() as session:
+        projects = db.find_project_by_uuid(session, project_uuid)
+        if not projects:
+            raise HTTPException(status_code=404, detail=f"Project '{project_uuid}' not found")
+        project = projects[0]
+        if project.owner_id != user_uuid:
+            raise HTTPException(status_code=403, detail="You can only update your own project")
+
+        kwargs = {}
+        if body.name is not None:
+            kwargs["name"] = body.name
+        if body.description is not None:
+            kwargs["description"] = body.description
+        if body.content is not None:
+            kwargs["content"] = body.content
+        if not kwargs:
+            return models.BaseResponse(success=True, msg="Nothing to update")
+
+        try:
+            db.update_project(session, project_uuid, commit=True, **kwargs)
+            return models.BaseResponse(success=True, msg="Project updated successfully")
+        except KeyError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/project/delete/{project_uuid}", response_model=models.BaseResponse)
+async def delete_project_endpoint(request: Request, project_uuid: str):
+    """
+    删除项目。需已登录且只能删除自己拥有的项目。
+    """
+    user = request.session.get("user")
+    if not user or not isinstance(user, dict):
+        raise HTTPException(status_code=401, detail="Please login first")
+    user_uuid = user.get("uuid")
+    if not user_uuid:
+        raise HTTPException(status_code=401, detail="Please login first")
+
+    with db.db_context() as session:
+        projects = db.find_project_by_uuid(session, project_uuid)
+        if not projects:
+            raise HTTPException(status_code=404, detail=f"Project '{project_uuid}' not found")
+        project = projects[0]
+        if project.owner_id != user_uuid:
+            raise HTTPException(status_code=403, detail="You can only delete your own project")
+
+        try:
+            db.delete_project(session, project_uuid, commit=True)
+            return models.BaseResponse(success=True, msg="Project deleted successfully")
+        except KeyError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.get("/project/list", response_model=list[models.ProjectInfo])
 async def get_project_list(request: Request):
     """

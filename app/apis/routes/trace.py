@@ -9,25 +9,25 @@ ADL trace 路由：返回符合 ADL v1 的 TraceResponse。
 import asyncio
 import logging
 from dataclasses import asdict
-
-from invoke import Context
+from tempfile import TemporaryDirectory
 
 from ...kernel import (
     adl_models,
     Config,
     setup,
     build,
-    start_qemu,
     stop_qemu,
     debug,
     ASMLineReader,
     ASMLine,
     ASMParam,
-    asm_steps_to_trace_response,
+    ASMStep,
+    asm_steps_to_trace_response, start_qemu,
 )
 from ... import database as db
 
 from fastapi import APIRouter, HTTPException
+from invoke import Context
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["trace"])
@@ -94,31 +94,42 @@ def _run_trace_pipeline_sync(project_uuid: str, asm_list: list[ASMLine], max_ste
     """
     同步执行 kernel 流水线并收集 ASMStep（阻塞）。
     顺序：setup → build → debug(pre=start_qemu) → 迭代 ALoader → stop_qemu，返回 steps。
-    """
-    from ...kernel.connector.connector import ASMStep
 
-    config = Config(uuid=project_uuid)
-    c = Context()
-    loader = None
-    try:
-        setup(c, config, asm_list)
-        build(c, config)
-        loader = debug(c, config)
-        steps: list[ASMStep] = []
-        for _ in range(max_steps):
-            step = next(loader)
-            steps.append(step)
-        return steps
-    finally:
-        if loader is not None:
+    这里将 PROJECT_DIR 配置为临时目录，trace 结束后自动清理，避免在磁盘上残留构建产物。
+    """
+    with TemporaryDirectory(prefix="trace-") as project_dir:
+        config = Config(
+            GDB_BIN="gdb-multiarch",
+            uuid=project_uuid,
+            PROJECT_DIR=project_dir,
+        )
+        c = Context()
+        loader = None
+        try:
+            setup(c, config, asm_list)
+            build(c, config)
+            # debug: 任务自身带有 pre=[start_qemu]，此处无需显式调用 start_qemu, 但是不显示调用则会连接错误.
+            start_qemu(c, config)
+            loader = debug(c, config)
+            steps: list[ASMStep] = []
+            for _ in range(max_steps):
+                try:
+                    step = next(loader)
+                except StopIteration:
+                    # 已离开 ASM 文件，正常结束
+                    break
+                steps.append(step)
+            return steps
+        finally:
+            if loader is not None:
+                try:
+                    loader.exit()
+                except Exception:
+                    pass
             try:
-                loader.exit()
+                stop_qemu(c, config)
             except Exception:
                 pass
-        try:
-            stop_qemu(c, config)
-        except Exception:
-            pass
 
 
 def _example_trace_response() -> adl_models.TraceResponse:
@@ -194,6 +205,50 @@ def _example_trace_response() -> adl_models.TraceResponse:
     )
 
 
+def _error_trace_response(message: str) -> adl_models.TraceResponse:
+    """
+    将编译/运行时错误包装为一个简单的 ADL TraceResponse，前端可在统一视图中展示错误信息。
+    """
+    return adl_models.TraceResponse(
+        adlVersion=1,
+        code=[adl_models.CodeLine(text="/* trace error */", addr=None)],
+        initialState=adl_models.InitialState(
+            registers={},
+            flags=adl_models.FlagsSnapshot(N=0, Z=0, C=0, V=0),
+        ),
+        steps=[
+            adl_models.TraceStep(
+                snapshot=adl_models.StepSnapshot(
+                    pc="0x00000000",
+                    lineCounter=0,
+                    registers={},
+                    flags=adl_models.FlagsSnapshot(N=0, Z=0, C=0, V=0),
+                ),
+                events=[
+                    adl_models.ADLEventSetActiveLine(by="index", value=0),
+                    adl_models.ADLEventFocusCanvas(target="None"),
+                    adl_models.ADLEventAnnotateBus(
+                        text=message,
+                        at="writeback",
+                    ),
+                ],
+            )
+        ],
+    )
+
+
+@router.get("/project/trace", response_model=adl_models.TraceResponse)
+async def get_project_trace(uuid: str | None = None):
+    """
+    兼容前端请求路径：/api/project/trace?uuid=...
+    - 未提供 uuid 时返回静态示例；
+    - 提供 uuid 时复用下方 get_trace 的逻辑。
+    """
+    if not uuid:
+        return _example_trace_response()
+    return await get_trace(uuid)
+
+
 @router.get("/trace", response_model=adl_models.TraceResponse)
 async def get_trace_example():
     """无 project_uuid 时返回静态示例，供前端 Demo 与测试使用。"""
@@ -220,18 +275,22 @@ async def get_trace(project_uuid: str):
     - 当 code 为空或结构不兼容时，回退使用 Project.source 解析，并在成功后刷新 Project.code；
     - 若均不可用，则回退为静态示例。
     """
+    # 先在 Session 中读取所需字段，避免在 Session 关闭后访问懒加载属性导致 DetachedInstanceError
     with db.db_context() as session:
         projects = db.find_project_by_uuid(session, project_uuid)
         if not projects:
             return _example_trace_response()
         project = projects[0]
+        project_uuid_value = project.uuid
+        project_code = project.code
+        project_source = project.source
 
     # 1. 优先从 Project.code 反序列化 ASMLine 列表
-    asm_list = _code_to_asm_list(project.code)
+    asm_list = _code_to_asm_list(project_code)
 
     # 2. 若 code 不可用，再回退使用 source 解析，并顺便刷新 code 缓存
     if asm_list is None:
-        asm_list = _source_to_asm_list(project.source or "")
+        asm_list = _source_to_asm_list(project_source or "")
         if asm_list is None:
             return _example_trace_response()
         try:
@@ -250,13 +309,13 @@ async def get_trace(project_uuid: str):
     try:
         steps = await asyncio.to_thread(
             _run_trace_pipeline_sync,
-            project.uuid,
+            project_uuid_value,
             asm_list,
             MAX_TRACE_STEPS,
         )
     except Exception as e:
         logger.exception("trace pipeline failed for project %s: %s", project_uuid, e)
-        return _example_trace_response()
+        return _error_trace_response(str(e))
 
     if not steps:
         return _example_trace_response()

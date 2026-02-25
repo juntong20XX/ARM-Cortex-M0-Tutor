@@ -57,11 +57,60 @@ async function loadProject(uuid: string) {
       return
     }
     const data = await res.json()
+    // #region agent log
+    fetch('http://localhost:7830/ingest/ec16ccae-d4fd-4bf8-935c-7e362c1afec0', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Debug-Session-Id': '454e14',
+      },
+      body: JSON.stringify({
+        sessionId: '454e14',
+        runId: 'initial',
+        hypothesisId: 'H1',
+        location: 'ProjectWorkspaceView.vue:loadProject:data',
+        message: 'Loaded project JSON for project workspace',
+        data: {
+          hasSource: typeof data.source === 'string' && data.source.length > 0,
+          sourceLength: typeof data.source === 'string' ? data.source.length : null,
+          hasContent: typeof data.content === 'string' && data.content.length > 0,
+          contentLength: typeof data.content === 'string' ? data.content.length : null,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {})
+    // #endregion
+    const mergedContent =
+      (typeof data.content === 'string' && data.content.length > 0)
+        ? data.content
+        : (typeof data.source === 'string' ? data.source : '')
+
     project.value = {
       uuid: data.uuid,
       name: data.name ?? 'Untitled project',
-      content: data.content ?? '',
+      content: mergedContent,
     }
+    // #region agent log
+    fetch('http://localhost:7830/ingest/ec16ccae-d4fd-4bf8-935c-7e362c1afec0', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Debug-Session-Id': '454e14',
+      },
+      body: JSON.stringify({
+        sessionId: '454e14',
+        runId: 'initial',
+        hypothesisId: 'H2',
+        location: 'ProjectWorkspaceView.vue:loadProject:project',
+        message: 'Project state after mapping JSON to view model',
+        data: {
+          hasProject: !!project.value,
+          contentLength: project.value ? project.value.content.length : null,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {})
+    // #endregion
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Network error.'
   } finally {
@@ -71,6 +120,27 @@ async function loadProject(uuid: string) {
 
 function ensureUuid() {
   const uuid = route.query.uuid as string | undefined
+  // #region agent log
+  fetch('http://localhost:7830/ingest/ec16ccae-d4fd-4bf8-935c-7e362c1afec0', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Debug-Session-Id': '454e14',
+    },
+    body: JSON.stringify({
+      sessionId: '454e14',
+      runId: 'initial',
+      hypothesisId: 'H3',
+      location: 'ProjectWorkspaceView.vue:ensureUuid',
+      message: 'ensureUuid called with route query',
+      data: {
+        hasUuid: !!uuid,
+        uuidLength: uuid ? String(uuid).length : 0,
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {})
+  // #endregion
   if (!uuid || !String(uuid).trim()) {
     router.replace('/project/list')
     return

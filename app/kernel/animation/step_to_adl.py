@@ -13,6 +13,33 @@ if TYPE_CHECKING:
     from ..connector.connector import ASMStep
 
 
+def _normalize_reg(name: str) -> str:
+    """将 r0/r1/... 规范为 ADL 使用的 R0/R1/..."""
+    s = name.strip().lower()
+    if s.startswith("r") and s[1:].isdigit():
+        return "R" + s[1:]
+    return name.strip()
+
+
+def _get_current_asm_line(step: "ASMStep") -> "ASMLine | None":
+    """根据 step.addr_pc 从 step.disassemble 中取出当前指令的 ASMLine。"""
+    from ..connector.asm_basic import ASMLine
+
+    try:
+        pc = int(step.addr_pc, 16)
+    except (ValueError, TypeError):
+        return None
+    for addr_str, asm_line in step.disassemble:
+        if not isinstance(asm_line, ASMLine):
+            continue
+        try:
+            if int(addr_str, 16) == pc:
+                return asm_line
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
 def _registers_and_flags(
     register_values: tuple[tuple[str, str], ...],
 ) -> tuple[dict[str, str], adl_models.FlagsSnapshot]:
@@ -22,6 +49,67 @@ def _registers_and_flags(
     n, z, c, v = (int(register_values[i][1]) for i in range(16, 20))
     flags = adl_models.FlagsSnapshot(N=n, Z=z, C=c, V=v)
     return regs, flags
+
+
+def _reg_value(register_values: tuple[tuple[str, str], ...], reg_name: str) -> str | None:
+    """从 register_values 中取某寄存器的值，reg_name 为小写 r0..r15。"""
+    reg_name = reg_name.strip().lower()
+    for name, value in register_values[:16]:
+        if name == reg_name:
+            return value
+    return None
+
+
+def _events_for_mov(
+    step: "ASMStep",
+    asm_line: "ASMLine",
+) -> list[adl_models.ADLEvent]:
+    """
+    为 MOV/MOVS 指令生成“数据来源”箭头事件：
+    - 源为寄存器：箭头从源寄存器行指向目的寄存器行；
+    - 源为立即数：箭头从当前代码行指向目的寄存器行。
+    """
+    # MOV 格式: mov(s) dest, source  -> param=dest, param_1=source
+    dest_param = asm_line.param
+    src_param = asm_line.param_1
+    if not dest_param or not dest_param.type_name:
+        return []
+    dest_reg = _normalize_reg(dest_param.text)
+    if not src_param or not src_param.type_name:
+        return []
+
+    events: list[adl_models.ADLEvent] = [
+        adl_models.ADLEventFocusCanvas(target="REG"),
+        adl_models.ADLEventMarkRegister(reg=dest_reg, mode="write"),
+    ]
+
+    if src_param.type_name == "r":
+        # 源是寄存器：箭头 源寄存器 -> 目的寄存器
+        src_reg = _normalize_reg(src_param.text)
+        src_value = _reg_value(step.register_values, src_param.text.strip().lower())
+        text = f"{src_reg} → {dest_reg}"
+        if src_value is not None:
+            text = f"{src_reg} ({src_value}) → {dest_reg}"
+        events.append(adl_models.ADLEventMarkRegister(reg=src_reg, mode="read"))
+        events.append(
+            adl_models.ADLEventOverlayArrow(
+                from_=adl_models.AnchorRefRegisterRow(reg=src_reg),
+                to=adl_models.AnchorRefRegisterRow(reg=dest_reg),
+                text=text,
+            )
+        )
+    elif src_param.type_name == "i":
+        # 源是立即数：箭头 当前代码行 -> 目的寄存器
+        imm = src_param.text.strip()
+        text = f"{imm} → {dest_reg}"
+        events.append(
+            adl_models.ADLEventOverlayArrow(
+                from_=adl_models.AnchorRefCodeLineAddr(lineIndex=step.line_counter),
+                to=adl_models.AnchorRefRegisterRow(reg=dest_reg),
+                text=text,
+            )
+        )
+    return events
 
 
 def asm_step_to_trace_step(step: "ASMStep") -> adl_models.TraceStep:
@@ -44,6 +132,17 @@ def asm_step_to_trace_step(step: "ASMStep") -> adl_models.TraceStep:
         adl_models.ADLEventFocusCanvas(target="CU"),
         adl_models.ADLEventWait(ms=800),
     ]
+
+    asm_line = _get_current_asm_line(step)
+    if asm_line is not None and asm_line.basic == "mov":
+        mov_events = _events_for_mov(step, asm_line)
+        # 在 SetActiveLine 之后、Wait 之前插入 MOV 相关事件（替换默认的 FocusCanvas）
+        events = [
+            adl_models.ADLEventSetActiveLine(by="index", value=step.line_counter),
+            *mov_events,
+            adl_models.ADLEventWait(ms=800),
+        ]
+
     return adl_models.TraceStep(snapshot=snapshot, events=events)
 
 

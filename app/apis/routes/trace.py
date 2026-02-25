@@ -284,6 +284,16 @@ async def get_trace(project_uuid: str):
         project_uuid_value = project.uuid
         project_code = project.code
         project_source = project.source
+        project_executed = project.executed
+
+    # 0. 若有 project.executed 缓存且结构合法，直接返回 ADL，避免重复执行流水线
+    if project_executed and isinstance(project_executed, list) and len(project_executed) > 0:
+        cached = project_executed[0]
+        if isinstance(cached, dict) and "adlVersion" in cached and "steps" in cached:
+            try:
+                return adl_models.TraceResponse.model_validate(cached)
+            except Exception:
+                pass  # 缓存结构不兼容时忽略，继续走流水线
 
     # 1. 优先从 Project.code 反序列化 ASMLine 列表
     asm_list = _code_to_asm_list(project_code)
@@ -319,4 +329,18 @@ async def get_trace(project_uuid: str):
 
     if not steps:
         return _example_trace_response()
-    return asm_steps_to_trace_response(steps)
+
+    trace_response = asm_steps_to_trace_response(steps)
+    try:
+        with db.db_context() as session:
+            db.update_project(
+                session,
+                project_uuid,
+                executed=[trace_response.model_dump()],
+                commit=True,
+            )
+    except Exception:
+        logger.exception(
+            "failed to cache executed trace for project %s", project_uuid
+        )
+    return trace_response

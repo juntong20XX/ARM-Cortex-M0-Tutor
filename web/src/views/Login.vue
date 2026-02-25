@@ -90,7 +90,7 @@ const handleLogin = (): void => {
 const handleLogout = (): void => {
   clearSession()
   ElMessage.success('Logged out successfully')
-  // 跳转到后端登出接口，清除服务端 session 后再重定向到 /login，否则无法重新登录
+  // Redirect to backend logout endpoint to clear server-side session, then back to /login
   window.location.href = '/api/logout'
 }
 

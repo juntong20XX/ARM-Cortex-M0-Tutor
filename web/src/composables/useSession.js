@@ -2,10 +2,10 @@ import { ref, computed } from 'vue'
 
 const SESSION_KEY = 'user_session'
 
-// 响应式会话状态
+// Reactive session state
 const session = ref(null)
 
-// 从 localStorage 加载会话
+// Load session from localStorage
 function loadSession() {
   try {
     const stored = localStorage.getItem(SESSION_KEY)
@@ -19,7 +19,7 @@ function loadSession() {
   return null
 }
 
-// 保存会话到 localStorage
+// Save session to localStorage
 function saveSession(userData) {
   try {
     const sessionData = {
@@ -36,7 +36,7 @@ function saveSession(userData) {
   }
 }
 
-// 清除会话
+// Clear session
 function clearSession() {
   try {
     localStorage.removeItem(SESSION_KEY)
@@ -48,7 +48,7 @@ function clearSession() {
   }
 }
 
-// 初始化：加载已存在的会话
+// Initialize: load existing session
 loadSession()
 
 export function useSession() {

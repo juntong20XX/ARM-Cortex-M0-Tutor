@@ -34,18 +34,18 @@ const router = createRouter({
   },
 })
 
-// 全局路由守卫：除白名单外必须已登录
+// Global navigation guard: all routes except whitelist require authentication
 router.beforeEach((to, from, next) => {
   const whiteList = ['/login', '/login-oauth', '/demo/embed']
 
-  // 白名单路径（含 /login-oauth 下的所有子路径）直接放行
+  // Whitelisted paths (including all subpaths under /login-oauth) are always allowed
   if (whiteList.some((path) => to.path === path || to.path.startsWith(`${path}/`))) {
     next()
     return
   }
 
   const { isAuthenticated, loadSession } = useSession()
-  // 确保从 localStorage 恢复会话
+  // Ensure session is restored from localStorage
   loadSession()
 
   if (isAuthenticated.value) {
@@ -53,7 +53,7 @@ router.beforeEach((to, from, next) => {
     return
   }
 
-  // 未登录则跳转到后端登录入口
+  // If not logged in, redirect to backend login endpoint
   window.location.href = '/api/login'
 })
 

@@ -138,7 +138,7 @@ function closeCreateForm() {
 async function submitCreateProject() {
   const { name, content, description, source } = createForm.value
   if (!name || !name.trim()) {
-    createError.value = '请填写项目名称'
+    createError.value = 'Please enter a project name'
     return
   }
   creating.value = true
@@ -173,11 +173,11 @@ async function submitCreateProject() {
       await loadProjects()
     } else {
       const data = await res.json().catch(() => ({}))
-      createError.value = data.detail || data.msg || `创建失败 (${res.status})`
+      createError.value = data.detail || data.msg || `Create failed (${res.status})`
     }
   } catch (err) {
     console.error('[ProjectList] Create project failed:', err)
-    createError.value = err.message || '网络错误'
+    createError.value = err.message || 'Network error'
   } finally {
     creating.value = false
   }
@@ -198,50 +198,50 @@ onMounted(() => {
 
     <div class="toolbar">
       <button type="button" class="primary-button" @click="openCreateForm">
-        新建项目
+        New Project
       </button>
     </div>
 
     <div v-if="showCreateForm" class="create-form-wrap">
-      <h3 class="create-form-title">新建项目</h3>
+      <h3 class="create-form-title">New Project</h3>
       <form class="create-form" @submit.prevent="submitCreateProject">
         <div class="form-row">
-          <label for="create-name">项目名称 <span class="required">*</span></label>
+          <label for="create-name">Project Name <span class="required">*</span></label>
           <input
             id="create-name"
             v-model="createForm.name"
             type="text"
-            placeholder="例如：Blinky LED"
+            placeholder="e.g. Blinky LED"
             class="form-input"
             required
           />
         </div>
         <div class="form-row">
-          <label for="create-description">描述</label>
+          <label for="create-description">Description</label>
           <input
             id="create-description"
             v-model="createForm.description"
             type="text"
-            placeholder="简短描述项目内容"
+            placeholder="Brief description of the project"
             class="form-input"
           />
         </div>
         <div class="form-row">
-          <label for="create-content">内容说明</label>
+          <label for="create-content">Content Description</label>
           <textarea
             id="create-content"
             v-model="createForm.content"
-            placeholder="项目说明或教程内容（可选）"
+            placeholder="Project description or tutorial content (optional)"
             class="form-input form-textarea"
             rows="2"
           />
         </div>
         <div class="form-row">
-          <label for="create-source">初始汇编源码</label>
+          <label for="create-source">Initial Assembly Source</label>
           <textarea
             id="create-source"
             v-model="createForm.source"
-            placeholder="可选，留空则从空项目开始"
+            placeholder="Optional, leave blank to start from an empty project"
             class="form-input form-textarea form-source"
             rows="6"
           />
@@ -249,10 +249,10 @@ onMounted(() => {
         <p v-if="createError" class="state state-error">{{ createError }}</p>
         <div class="form-actions">
           <button type="button" class="secondary-button" @click="closeCreateForm">
-            取消
+            Cancel
           </button>
           <button type="submit" class="primary-button" :disabled="creating">
-            {{ creating ? '创建中…' : '创建' }}
+            {{ creating ? 'Creating...' : 'Create' }}
           </button>
         </div>
       </form>

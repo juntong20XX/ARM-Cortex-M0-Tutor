@@ -6,7 +6,7 @@
     <div class="left-panel" ref="leftPanelRef">
       <div class="toolbar">
         <el-button type="primary" size="small" @click="runDemo" :disabled="isAnimating">
-          <el-icon><VideoPlay /></el-icon> Run Demo (ADD 2 r0 r1)
+          <el-icon><VideoPlay /></el-icon> {{ runButtonLabel }}
         </el-button>
         <el-tag v-if="currentStepText" type="warning" class="step-info">{{ currentStepText }}</el-tag>
       </div>
@@ -175,13 +175,123 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { useRoute } from 'vue-router'
 import { VideoPlay, View, Edit } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { playTrace } from '@/animation/tracePlayer'
 import { ADL_VERSION } from '@/animation/adl-types'
 import type { TraceResponse, StepSnapshot, AnchorRef } from '@/animation/adl-types'
 
-const code = ref('\nMOV r0, #1\n\nADD r0, r1\n')
+type ExampleId = 'default' | 'blinky' | 'systick' | 'uart'
+
+const route = useRoute()
+
+const EXAMPLE_CODES: Record<ExampleId, string> = {
+  default: '\nMOV r0, #1\n\nADD r0, r1\n',
+  blinky: [
+    '; Blinky LED - toggle GPIO pin',
+    'LDR r0, =GPIO_PORT_BASE',
+    'LDR r1, =LED_PIN_MASK',
+    'loop:',
+    '  EOR r2, r2, r1      ; toggle LED bit',
+    '  STR r2, [r0]        ; write to GPIO port',
+    '  BL  delay',
+    '  B   loop',
+    '',
+    'delay:',
+    '  MOV r3, #0xFFFF',
+    'd_loop:',
+    '  SUBS r3, r3, #1',
+    '  BNE d_loop',
+    '  BX  lr',
+    '',
+  ].join('\n'),
+  systick: [
+    '; SysTick Timer - 1ms tick',
+    'LDR r0, =SYST_CSR',
+    'LDR r1, =SYST_RVR',
+    'LDR r2, =SYST_CVR',
+    '',
+    '; reload value for 1ms @ 48MHz',
+    'MOV r3, #48000',
+    'STR r3, [r1]',
+    '',
+    '; clear current value',
+    'MOV r3, #0',
+    'STR r3, [r2]',
+    '',
+    '; enable SysTick, CPU clock, interrupt',
+    'MOV r3, #0b111',
+    'STR r3, [r0]',
+    '',
+    'main_loop:',
+    '  WFI               ; wait for interrupt',
+    '  B   main_loop',
+    '',
+  ].join('\n'),
+  uart: [
+    '; UART Echo - poll-based loop',
+    'LDR r0, =USART_DR',
+    'LDR r1, =USART_SR',
+    'LDR r2, =USART_BRR',
+    '',
+    '; init baud rate etc (details omitted)',
+    'BL  uart_init',
+    '',
+    'echo_loop:',
+    '  ; wait RXNE',
+    'rx_wait:',
+    '  LDR r3, [r1]',
+    '  TST r3, #RXNE',
+    '  BEQ rx_wait',
+    '',
+    '  ; read received byte',
+    '  LDR r4, [r0]',
+    '',
+    '  ; wait TXE',
+    'tx_wait:',
+    '  LDR r3, [r1]',
+    '  TST r3, #TXE',
+    '  BEQ tx_wait',
+    '',
+    '  ; write back same byte',
+    '  STR r4, [r0]',
+    '  B   echo_loop',
+    '',
+  ].join('\n'),
+}
+
+const currentExample = computed<ExampleId>(() => {
+  const raw = (route.query.project as string | undefined) ?? ''
+  const p = raw.toLowerCase()
+  if (p.includes('blinky') || p.includes('demo-blinky')) return 'blinky'
+  if (p.includes('systick') || p.includes('demo-systick')) return 'systick'
+  if (p.includes('uart') || p.includes('demo-uart')) return 'uart'
+  return 'default'
+})
+
+const runButtonLabel = computed(() => {
+  switch (currentExample.value) {
+    case 'blinky':
+      return 'Run "Blinky LED"'
+    case 'systick':
+      return 'Run "SysTick Timer"'
+    case 'uart':
+      return 'Run "UART Echo"'
+    default:
+      return 'Run Demo (ADD 2 r0 r1)'
+  }
+})
+
+const code = ref(EXAMPLE_CODES.default)
+
+onMounted(() => {
+  code.value = EXAMPLE_CODES[currentExample.value]
+})
+
+watch(currentExample, (example) => {
+  code.value = EXAMPLE_CODES[example]
+})
 
 const codeLines = computed(() => {
   return code.value.split('\n')

@@ -17,6 +17,61 @@
         >
           {{ saving ? 'Saving...' : 'Save' }}
         </el-button>
+        <div class="playback-controls">
+          <el-button-group size="small">
+            <el-button
+              @click="stepBackward"
+              :disabled="!traceController || totalSteps <= 0 || currentStepIndex <= 0 || isAnimating"
+            >
+              ⏮
+            </el-button>
+            <el-button
+              v-if="!isPlaying"
+              type="primary"
+              @click="playFromCurrent"
+              :disabled="!traceController || totalSteps <= 0 || isAnimating"
+            >
+              ▶
+            </el-button>
+            <el-button
+              v-else
+              type="warning"
+              @click="pausePlayback"
+              :disabled="!traceController || totalSteps <= 0"
+            >
+              ⏸
+            </el-button>
+            <el-button
+              @click="stepForward"
+              :disabled="!traceController || totalSteps <= 0 || currentStepIndex >= totalSteps - 1 || isAnimating"
+            >
+              ⏭
+            </el-button>
+            <el-button
+              @click="resetPlayback"
+              :disabled="!traceController || totalSteps <= 0 || isAnimating"
+            >
+              ⏹
+            </el-button>
+          </el-button-group>
+          <div class="speed-control" v-if="traceController && totalSteps > 0">
+            <span class="speed-label">Speed</span>
+            <el-slider
+              v-model="playSpeed"
+              :min="0.25"
+              :max="2"
+              :step="0.25"
+              :show-tooltip="true"
+              class="speed-slider"
+            />
+            <span class="speed-value">{{ playSpeed.toFixed(2) }}x</span>
+          </div>
+          <div class="step-summary" v-if="traceController && totalSteps > 0">
+            <span class="step-counter">
+              Step {{ currentStepIndex >= 0 ? currentStepIndex + 1 : 0 }} / {{ totalSteps }}
+            </span>
+          </div>
+        </div>
         <el-tag v-if="currentStepText" type="warning" class="step-info">{{ currentStepText }}</el-tag>
       </div>
       <div class="editor-wrapper" :style="{ height: editorHeight + 'px' }">
@@ -186,7 +241,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { VideoPlay, View, Edit } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { playTrace } from '@/animation/tracePlayer'
+import { createTraceController, type TraceController } from '@/animation/tracePlayer'
 import { ADL_VERSION } from '@/animation/adl-types'
 import type { TraceResponse, StepSnapshot, AnchorRef } from '@/animation/adl-types'
 
@@ -335,6 +390,13 @@ watch(memoryViewStart, (v) => {
 }, { immediate: true })
 const isAnimating = ref(false)
 const currentStepText = ref('')
+const currentTrace = ref<TraceResponse | null>(null)
+const traceController = ref<TraceController | null>(null)
+const currentStepIndex = ref(-1)
+const totalSteps = ref(0)
+const isPlaying = ref(false)
+const isPaused = ref(false)
+const playSpeed = ref(1)
 const archCanvas = ref<HTMLCanvasElement | null>(null)
 const mcuZoomWrapperRef = ref<HTMLElement | null>(null)
 const MCU_ZOOM_MIN = 0.5
@@ -943,6 +1005,9 @@ async function fetchTrace(): Promise<TraceResponse | null> {
 
 async function runTraceAnimation(trace: TraceResponse) {
   isAnimating.value = true
+  isPlaying.value = false
+  isPaused.value = false
+  currentTrace.value = trace
   if (trace.initialState) applySnapshotToUI({ pc: '', lineCounter: 0, registers: trace.initialState.registers || {}, flags: trace.initialState.flags || { N: 0, Z: 0, C: 0, V: 0 } })
   if (trace.code && trace.code.length) {
     code.value = trace.code.map(c => c.text).join('\n')
@@ -951,12 +1016,16 @@ async function runTraceAnimation(trace: TraceResponse) {
   drawArchitecture(0)
   demoOverlay.value.show = false
   const driver = createTraceDriver()
-  await playTrace(trace, { driver, speed: 1 })
-  currentStepText.value = 'Execution Completed'
-  drawArchitecture(0)
-  demoOverlay.value.show = false
+  const controller = createTraceController(trace, driver, { speed: playSpeed.value })
+  traceController.value = controller
+  totalSteps.value = controller.totalSteps
+  currentStepIndex.value = controller.currentIndex
+  if (controller.totalSteps > 0) {
+    await controller.stepTo(0, { animateWaits: false })
+    currentStepIndex.value = controller.currentIndex
+  }
   isAnimating.value = false
-  setTimeout(() => { currentStepText.value = '' }, 2000)
+  currentStepText.value = ''
 }
 
 async function runDemoFromMockTrace() {
@@ -982,57 +1051,161 @@ const runDemo = async () => {
   }
 }
 
-async function runDemoFallback() {
-  if (isAnimating.value) return
+async function playFromCurrent() {
+  const controller = traceController.value
+  if (!controller || totalSteps.value === 0) return
+  if (isPlaying.value) return
+  isPlaying.value = true
+  isPaused.value = false
   isAnimating.value = true
-
-  (registers.value as any[]).forEach(r => { r.status = '' })
-  ;(registers.value as any[])[1].value = 0
-  flags.value = { N: false, Z: false, C: false, V: false }
-
-  drawArchitecture(0)
-  demoOverlay.value.show = false
-
-  currentStepText.value = 'Step 1: Decode instruction (Control Unit)'
-  const r0 = (registers.value as any[]).find(r => r.name === 'R0')
-  const r1 = (registers.value as any[]).find(r => r.name === 'R1')
-  drawArchitecture(1)
-  await nextTick()
-  updateOverlay('CANVAS', 'CU', 'Decode: ADD #2, R0 → R1')
-  await sleep(1200)
-
-  currentStepText.value = 'Step 2: Read operand R0'
-  if (r0) r0.status = 'read'
-  drawArchitecture(1)
-  await nextTick()
-  updateOverlay('REGISTER', 'R0', `Read R0 = ${r0 ? r0.value : '?'}`)
-  await sleep(1200)
-
-  currentStepText.value = 'Step 3: ALU Execution (R0 + #2)'
-  const result: number = 3
-  flags.value.N = result < 0
-  flags.value.Z = result === 0
-  drawArchitecture(2)
-  updateOverlay('CANVAS', 'ALU', 'ALU: 1 + 2 = 3')
-  await sleep(1200)
-
-  currentStepText.value = 'Step 4: Write back result to R1'
-  if (r0) r0.status = ''
-  if (r1) { r1.status = 'write'; r1.value = result }
-  drawArchitecture(3)
-  await nextTick()
-  updateOverlay('REGISTER', 'R1', `Write R1 = ${result}`)
-  await sleep(1200)
-
-  currentStepText.value = 'Execution Completed'
-  if (r1) r1.status = ''
-  drawArchitecture(0)
-  demoOverlay.value.show = false
-  isAnimating.value = false
-  setTimeout(() => { currentStepText.value = '' }, 2000)
+  const playSessionId = Symbol('playSession')
+  const localSession = playSessionId
+  await controller.playForward({
+    fromIndex: currentStepIndex.value,
+    speed: playSpeed.value,
+    animateWaits: true,
+    shouldContinue: () => {
+      return isPlaying.value && !isPaused.value && traceController.value === controller && localSession === playSessionId
+    }
+  })
+  if (traceController.value === controller && localSession === playSessionId) {
+    isPlaying.value = false
+    isPaused.value = false
+    isAnimating.value = false
+    if (controller.currentIndex === controller.totalSteps - 1 && controller.totalSteps > 0) {
+      currentStepText.value = 'Execution Completed'
+      setTimeout(() => {
+        if (currentStepText.value === 'Execution Completed') currentStepText.value = ''
+      }, 2000)
+    }
+    currentStepIndex.value = controller.currentIndex
+  }
 }
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+function pausePlayback() {
+  if (!isPlaying.value) return
+  isPaused.value = true
+  isPlaying.value = false
+}
+
+async function stepForward() {
+  const controller = traceController.value
+  if (!controller || totalSteps.value === 0) return
+  if (currentStepIndex.value >= totalSteps.value - 1) return
+  isPlaying.value = false
+  isPaused.value = false
+  await controller.stepTo(currentStepIndex.value + 1, { animateWaits: false })
+  currentStepIndex.value = controller.currentIndex
+}
+
+async function stepBackward() {
+  const controller = traceController.value
+  if (!controller || totalSteps.value === 0) return
+  if (currentStepIndex.value <= 0) {
+    await controller.stepTo(0, { animateWaits: false })
+    currentStepIndex.value = controller.currentIndex
+    return
+  }
+  isPlaying.value = false
+  isPaused.value = false
+  await controller.stepTo(currentStepIndex.value - 1, { animateWaits: false })
+  currentStepIndex.value = controller.currentIndex
+}
+
+async function resetPlayback() {
+  const controller = traceController.value
+  if (!controller || totalSteps.value === 0) return
+  isPlaying.value = false
+  isPaused.value = false
+  await controller.stepTo(0, { animateWaits: false })
+  currentStepIndex.value = controller.currentIndex
+  currentStepText.value = ''
+}
+
+async function runDemoFallback() {
+  const fallbackTrace: TraceResponse = {
+    adlVersion: ADL_VERSION,
+    steps: [
+      {
+        snapshot: {
+          pc: '0x0000',
+          lineCounter: 1,
+          registers: { r0: '0x1', r1: '0x0' },
+          flags: { N: 0, Z: 0, C: 0, V: 0 }
+        },
+        events: [
+          { type: 'SetActiveLine', by: 'index', value: 0 },
+          { type: 'FocusCanvas', target: 'CU' },
+          {
+            type: 'OverlayArrow',
+            from: { kind: 'CodeLineAddr', lineIndex: 0 },
+            to: { kind: 'CanvasComponent', id: 'CU' },
+            text: 'Step 1: Decode instruction (Control Unit)'
+          },
+          { type: 'Wait', ms: 1200 }
+        ]
+      },
+      {
+        snapshot: {
+          pc: '0x0002',
+          lineCounter: 2,
+          registers: { r0: '0x1', r1: '0x0' },
+          flags: { N: 0, Z: 0, C: 0, V: 0 }
+        },
+        events: [
+          { type: 'SetActiveLine', by: 'index', value: 0 },
+          { type: 'FocusCanvas', target: 'REG' },
+          {
+            type: 'OverlayArrow',
+            from: { kind: 'RegisterRow', reg: 'R0' },
+            to: { kind: 'RegisterRow', reg: 'R0' },
+            text: 'Step 2: Read operand R0'
+          },
+          { type: 'MarkRegister', reg: 'R0', mode: 'read' },
+          { type: 'Wait', ms: 1200 }
+        ]
+      },
+      {
+        snapshot: {
+          pc: '0x0004',
+          lineCounter: 3,
+          registers: { r0: '0x1', r1: '0x3' },
+          flags: { N: 0, Z: 0, C: 0, V: 0 }
+        },
+        events: [
+          { type: 'FocusCanvas', target: 'ALU' },
+          {
+            type: 'OverlayArrow',
+            from: { kind: 'CanvasComponent', id: 'ALU' },
+            to: { kind: 'CanvasComponent', id: 'ALU' },
+            text: 'Step 3: ALU Execution (R0 + #2)'
+          },
+          { type: 'Wait', ms: 1200 }
+        ]
+      },
+      {
+        snapshot: {
+          pc: '0x0006',
+          lineCounter: 4,
+          registers: { r0: '0x1', r1: '0x3' },
+          flags: { N: 0, Z: 0, C: 0, V: 0 }
+        },
+        events: [
+          { type: 'FocusCanvas', target: 'REG' },
+          {
+            type: 'OverlayArrow',
+            from: { kind: 'CanvasComponent', id: 'REG' },
+            to: { kind: 'RegisterRow', reg: 'R1' },
+            text: 'Step 4: Write back result to R1'
+          },
+          { type: 'MarkRegister', reg: 'R1', mode: 'write' },
+          { type: 'Wait', ms: 1200 }
+        ]
+      }
+    ]
+  }
+  await runTraceAnimation(fallbackTrace)
+}
 
 </script>
 
@@ -1134,10 +1307,55 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .step-info {
   font-weight: bold;
+}
+
+.playback-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.speed-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 160px;
+}
+
+.speed-label {
+  font-size: 12px;
+  color: #ddd;
+}
+
+.speed-slider {
+  flex: 1;
+  max-width: 160px;
+}
+
+.speed-value {
+  font-size: 12px;
+  color: #eee;
+  min-width: 44px;
+  text-align: right;
+}
+
+.step-summary {
+  font-size: 12px;
+  color: #ddd;
+  white-space: nowrap;
+}
+
+.step-counter {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .editor-wrapper {

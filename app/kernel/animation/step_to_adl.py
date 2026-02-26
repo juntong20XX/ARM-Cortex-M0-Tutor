@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from . import adl_models
 
 if TYPE_CHECKING:
-    from ..connector.asm_basic import ASMLine
+    from ..connector.asm_basic import ASMLine, ASMParam
     from ..connector.connector import ASMStep
 
 
@@ -112,6 +112,325 @@ def _events_for_mov(
     return events
 
 
+def _parse_address_param(
+    param: "ASMParam",
+) -> tuple[str | None, str | None]:
+    """
+    解析地址形式参数 `[r1, #4]` / `[r1]`：
+    返回 (base_reg, offset_str)，其中 base_reg 已通过 _normalize_reg 规范。
+    """
+    if not param or not param.type_name:
+        return None, None
+
+    text = param.text.strip()
+    if not (text.startswith("[") and text.endswith("]")):
+        return None, None
+
+    inner = text[1:-1].strip()
+    if not inner:
+        return None, None
+
+    base_part: str
+    offset_part: str | None
+    if "," in inner:
+        base_part, offset_part = inner.split(",", 1)
+        base_part = base_part.strip()
+        offset_part = offset_part.strip()
+    else:
+        base_part = inner
+        offset_part = None
+
+    if not base_part:
+        return None, None
+    base_reg = _normalize_reg(base_part)
+    return base_reg, offset_part
+
+
+def _events_for_add_sub(
+    step: "ASMStep",
+    asm_line: "ASMLine",
+    op_symbol: str,
+) -> list[adl_models.ADLEvent]:
+    """
+    为 ADD/SUB 指令生成事件：
+    - 标记源寄存器读、目标寄存器写；
+    - 以 ALU 为中心，展示表达式与结果写回。
+    """
+    dest_param = asm_line.param
+    src1_param = asm_line.param_1
+    src2_param = asm_line.param_2
+    if not dest_param or not dest_param.type_name:
+        return []
+    if not src1_param or not src1_param.type_name:
+        return []
+    dest_reg = _normalize_reg(dest_param.text)
+
+    def _operand_display(p: "ASMParam") -> tuple[str, str | None]:
+        """返回 (展示文本, 对应寄存器当前值或 None)。"""
+        if not p or not p.type_name:
+            return "?", None
+        if p.type_name == "r":
+            reg = _normalize_reg(p.text)
+            value = _reg_value(step.register_values, p.text.strip().lower())
+            if value is not None:
+                return f"{reg} ({value})", value
+            return reg, None
+        # 立即数或其他，直接用原始文本
+        return p.text.strip(), None
+
+    src1_text, _ = _operand_display(src1_param)
+    src2_text, _ = _operand_display(src2_param) if src2_param and src2_param.type_name else ("?", None)
+
+    expr = f"{src1_text} {op_symbol} {src2_text}"
+    result_value = _reg_value(step.register_values, dest_param.text.strip().lower())
+    annotate_text = expr
+    if result_value is not None:
+        annotate_text = f"{expr} = {result_value}"
+
+    events: list[adl_models.ADLEvent] = [
+        adl_models.ADLEventFocusCanvas(target="ALU"),
+    ]
+
+    if src1_param.type_name == "r":
+        events.append(
+            adl_models.ADLEventMarkRegister(
+                reg=_normalize_reg(src1_param.text),
+                mode="read",
+            )
+        )
+    if src2_param and src2_param.type_name == "r":
+        events.append(
+            adl_models.ADLEventMarkRegister(
+                reg=_normalize_reg(src2_param.text),
+                mode="read",
+            )
+        )
+
+    events.append(
+        adl_models.ADLEventMarkRegister(
+            reg=dest_reg,
+            mode="write",
+        )
+    )
+    events.append(
+        adl_models.ADLEventAnnotateBus(
+            text=annotate_text,
+            at="writeback",
+        )
+    )
+    events.append(
+        adl_models.ADLEventOverlayArrow(
+            from_=adl_models.AnchorRefCanvasComponent(id="ALU"),
+            to=adl_models.AnchorRefRegisterRow(reg=dest_reg),
+            text=f"{expr} → {dest_reg}",
+        )
+    )
+    return events
+
+
+def _events_for_ldr(
+    step: "ASMStep",
+    asm_line: "ASMLine",
+) -> list[adl_models.ADLEvent]:
+    """
+    为 LDR 指令生成事件：
+    - 从内存/常量池加载到寄存器；
+    - 地址形式：[Rn] / [Rn, #imm] / =imm。
+    """
+    dest_param = asm_line.param
+    src_param = asm_line.param_1
+    if not dest_param or not dest_param.type_name:
+        return []
+    if not src_param or not src_param.type_name:
+        return []
+
+    dest_reg = _normalize_reg(dest_param.text)
+    events: list[adl_models.ADLEvent] = [
+        adl_models.ADLEventFocusCanvas(target="REG"),
+        adl_models.ADLEventMarkRegister(reg=dest_reg, mode="write"),
+    ]
+
+    # 地址形式：[Rn, #imm] / [Rn]
+    if src_param.type_name in {"a", "m"}:
+        base_reg, offset = _parse_address_param(src_param)
+        if base_reg is None:
+            return events
+        events.append(
+            adl_models.ADLEventMarkRegister(
+                reg=base_reg,
+                mode="read",
+            )
+        )
+        addr_text = f"[{base_reg}"
+        if offset:
+            addr_text += f", {offset}"
+        addr_text += "]"
+        events.append(
+            adl_models.ADLEventAnnotateBus(
+                text=f"Load {addr_text}",
+                at="writeback",
+            )
+        )
+        events.append(
+            adl_models.ADLEventOverlayArrow(
+                from_=adl_models.AnchorRefRegisterRow(reg=base_reg),
+                to=adl_models.AnchorRefRegisterRow(reg=dest_reg),
+                text=f"{addr_text} → {dest_reg}",
+            )
+        )
+        return events
+
+    # 常量池形式：=imm 或立即数，视为“字面量 → 寄存器”
+    if src_param.type_name in {"c", "i"}:
+        imm = src_param.text.strip()
+        events.append(
+            adl_models.ADLEventOverlayArrow(
+                from_=adl_models.AnchorRefCodeLineAddr(lineIndex=step.line_counter),
+                to=adl_models.AnchorRefRegisterRow(reg=dest_reg),
+                text=f"{imm} → {dest_reg}",
+            )
+        )
+        return events
+
+    return events
+
+
+def _events_for_str(
+    step: "ASMStep",
+    asm_line: "ASMLine",
+) -> list[adl_models.ADLEvent]:
+    """
+    为 STR/STRB 指令生成事件：
+    - 将寄存器值写入内存地址（[Rn] / [Rn, #imm]）。
+    """
+    value_param = asm_line.param
+    addr_param = asm_line.param_1
+    if not value_param or not value_param.type_name:
+        return []
+    if not addr_param or not addr_param.type_name:
+        return []
+
+    value_reg = _normalize_reg(value_param.text) if value_param.type_name == "r" else value_param.text.strip()
+    events: list[adl_models.ADLEvent] = [
+        adl_models.ADLEventFocusCanvas(target="REG"),
+    ]
+
+    if value_param.type_name == "r":
+        events.append(
+            adl_models.ADLEventMarkRegister(
+                reg=value_reg,
+                mode="read",
+            )
+        )
+
+    if addr_param.type_name in {"a", "m"}:
+        base_reg, offset = _parse_address_param(addr_param)
+        addr_text = ""
+        if base_reg is not None:
+            events.append(
+                adl_models.ADLEventMarkRegister(
+                    reg=base_reg,
+                    mode="read",
+                )
+            )
+            addr_text = f"[{base_reg}"
+            if offset:
+                addr_text += f", {offset}"
+            addr_text += "]"
+        else:
+            addr_text = addr_param.text.strip()
+
+        events.append(
+            adl_models.ADLEventAnnotateBus(
+                text=f"Store {value_reg} → {addr_text}",
+                at="writeback",
+            )
+        )
+        events.append(
+            adl_models.ADLEventOverlayArrow(
+                from_=adl_models.AnchorRefRegisterRow(reg=value_reg)
+                if value_param.type_name == "r"
+                else adl_models.AnchorRefCodeLineAddr(lineIndex=step.line_counter),
+                to=adl_models.AnchorRefCodeLineAddr(lineIndex=step.line_counter),
+                text=f"{value_reg} → {addr_text}",
+            )
+        )
+        return events
+
+    # 其他地址形式，降级为简单箭头
+    addr_text = addr_param.text.strip()
+    events.append(
+        adl_models.ADLEventOverlayArrow(
+            from_=adl_models.AnchorRefRegisterRow(reg=value_reg)
+            if value_param.type_name == "r"
+            else adl_models.AnchorRefCodeLineAddr(lineIndex=step.line_counter),
+            to=adl_models.AnchorRefCodeLineAddr(lineIndex=step.line_counter),
+            text=f"{value_reg} → {addr_text}",
+        )
+    )
+    return events
+
+
+def _events_for_bx(
+    step: "ASMStep",
+    asm_line: "ASMLine",
+) -> list[adl_models.ADLEvent]:
+    """
+    为 BX 指令生成事件：
+    - 源寄存器读；
+    - PC（R15）写；
+    - 箭头：源寄存器 → PC。
+    """
+    src_param = asm_line.param
+    if not src_param or not src_param.type_name:
+        return []
+
+    src_reg = _normalize_reg(src_param.text)
+    events: list[adl_models.ADLEvent] = [
+        adl_models.ADLEventFocusCanvas(target="CU"),
+        adl_models.ADLEventMarkRegister(reg=src_reg, mode="read"),
+        adl_models.ADLEventMarkRegister(reg="R15", mode="write"),
+        adl_models.ADLEventOverlayArrow(
+            from_=adl_models.AnchorRefRegisterRow(reg=src_reg),
+            to=adl_models.AnchorRefRegisterRow(reg="R15"),
+            text=f"{src_reg} → PC",
+        ),
+    ]
+    return events
+
+
+def _events_for_bl(
+    step: "ASMStep",
+    asm_line: "ASMLine",
+) -> list[adl_models.ADLEvent]:
+    """
+    为 BL 指令生成事件：
+    - 强调“调用目标”和“保存返回地址”；
+    - 近似展示 PC/LR 写入。
+    """
+    target_param = asm_line.param
+    if not target_param or not target_param.type_name:
+        return []
+
+    target_text = target_param.text.strip()
+    events: list[adl_models.ADLEvent] = [
+        adl_models.ADLEventFocusCanvas(target="CU"),
+        adl_models.ADLEventMarkRegister(reg="R15", mode="write"),
+        adl_models.ADLEventMarkRegister(reg="R14", mode="write"),
+        adl_models.ADLEventOverlayArrow(
+            from_=adl_models.AnchorRefCodeLineAddr(lineIndex=step.line_counter),
+            to=adl_models.AnchorRefRegisterRow(reg="R15"),
+            text=f"PC ← {target_text}",
+        ),
+        adl_models.ADLEventOverlayArrow(
+            from_=adl_models.AnchorRefCodeLineAddr(lineIndex=step.line_counter),
+            to=adl_models.AnchorRefRegisterRow(reg="R14"),
+            text="Save return addr",
+        ),
+    ]
+    return events
+
+
 def asm_step_to_trace_step(step: "ASMStep") -> adl_models.TraceStep:
     """Convert a single ASMStep to ADL TraceStep (snapshot + minimal events)."""
     from ..connector.connector import ASMStep
@@ -134,14 +453,60 @@ def asm_step_to_trace_step(step: "ASMStep") -> adl_models.TraceStep:
     ]
 
     asm_line = _get_current_asm_line(step)
-    if asm_line is not None and asm_line.basic == "mov":
-        mov_events = _events_for_mov(step, asm_line)
-        # 在 SetActiveLine 之后、Wait 之前插入 MOV 相关事件（替换默认的 FocusCanvas）
-        events = [
-            adl_models.ADLEventSetActiveLine(by="index", value=step.line_counter),
-            *mov_events,
-            adl_models.ADLEventWait(ms=800),
-        ]
+    if asm_line is not None:
+        basic = asm_line.basic
+        if basic == "mov":
+            mov_events = _events_for_mov(step, asm_line)
+            # 在 SetActiveLine 之后、Wait 之前插入 MOV 相关事件（替换默认的 FocusCanvas）
+            events = [
+                adl_models.ADLEventSetActiveLine(by="index", value=step.line_counter),
+                *mov_events,
+                adl_models.ADLEventWait(ms=800),
+            ]
+        elif basic in {"add", "sub"}:
+            add_sub_events = _events_for_add_sub(
+                step,
+                asm_line,
+                op_symbol="+" if basic == "add" else "-",
+            )
+            if add_sub_events:
+                events = [
+                    adl_models.ADLEventSetActiveLine(by="index", value=step.line_counter),
+                    *add_sub_events,
+                    adl_models.ADLEventWait(ms=800),
+                ]
+        elif basic == "ldr":
+            ldr_events = _events_for_ldr(step, asm_line)
+            if ldr_events:
+                events = [
+                    adl_models.ADLEventSetActiveLine(by="index", value=step.line_counter),
+                    *ldr_events,
+                    adl_models.ADLEventWait(ms=800),
+                ]
+        elif basic in {"str", "strb"}:
+            str_events = _events_for_str(step, asm_line)
+            if str_events:
+                events = [
+                    adl_models.ADLEventSetActiveLine(by="index", value=step.line_counter),
+                    *str_events,
+                    adl_models.ADLEventWait(ms=800),
+                ]
+        elif basic == "bx":
+            bx_events = _events_for_bx(step, asm_line)
+            if bx_events:
+                events = [
+                    adl_models.ADLEventSetActiveLine(by="index", value=step.line_counter),
+                    *bx_events,
+                    adl_models.ADLEventWait(ms=800),
+                ]
+        elif basic == "bl":
+            bl_events = _events_for_bl(step, asm_line)
+            if bl_events:
+                events = [
+                    adl_models.ADLEventSetActiveLine(by="index", value=step.line_counter),
+                    *bl_events,
+                    adl_models.ADLEventWait(ms=800),
+                ]
 
     return adl_models.TraceStep(snapshot=snapshot, events=events)
 

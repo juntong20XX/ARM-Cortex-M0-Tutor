@@ -13,7 +13,12 @@
         <router-link to="/project/list" class="back-link">← Project list</router-link>
         <h1 class="workspace-title">{{ project.name }}</h1>
       </header>
-      <DemoWorkspace :initial-code="project.content" :project-uuid="project.uuid" :allow-save="false" />
+      <DemoWorkspace
+        :initial-code="project.content"
+        :project-uuid="project.uuid"
+        :initial-trace="project.executedTrace"
+        :allow-save="false"
+      />
     </template>
   </div>
 </template>
@@ -22,11 +27,20 @@
 import { ref, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import DemoWorkspace from './DemoWorkspace.vue'
+import type { TraceResponse } from '@/animation/adl-types'
 
 const route = useRoute()
 const router = useRouter()
 
-const project = ref<{ uuid: string; name: string; content: string } | null>(null)
+interface ProjectViewModel {
+  uuid: string
+  name: string
+  content: string
+  source: string
+  executedTrace: TraceResponse | null
+}
+
+const project = ref<ProjectViewModel | null>(null)
 const loading = ref(true)
 const error = ref('')
 
@@ -57,60 +71,30 @@ async function loadProject(uuid: string) {
       return
     }
     const data = await res.json()
-    // #region agent log
-    fetch('http://localhost:7830/ingest/ec16ccae-d4fd-4bf8-935c-7e362c1afec0', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Debug-Session-Id': '454e14',
-      },
-      body: JSON.stringify({
-        sessionId: '454e14',
-        runId: 'initial',
-        hypothesisId: 'H1',
-        location: 'ProjectWorkspaceView.vue:loadProject:data',
-        message: 'Loaded project JSON for project workspace',
-        data: {
-          hasSource: typeof data.source === 'string' && data.source.length > 0,
-          sourceLength: typeof data.source === 'string' ? data.source.length : null,
-          hasContent: typeof data.content === 'string' && data.content.length > 0,
-          contentLength: typeof data.content === 'string' ? data.content.length : null,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {})
-    // #endregion
-    const mergedContent =
-      (typeof data.source === 'string' && data.source.length > 0)
-        ? data.source
+
+    const source: string =
+      typeof data.source === 'string' ? data.source : ''
+    const mergedContent: string =
+      source && source.length > 0
+        ? source
         : (typeof data.content === 'string' ? data.content : '')
+
+    let executedTrace: TraceResponse | null = null
+    if (Array.isArray(data.executed) && data.executed.length > 0) {
+      const raw = data.executed[0]
+      if (raw && typeof raw === 'object') {
+        // 这里假定后端返回的结构已经符合 TraceResponse 规范；若结构不兼容，后续前端会优雅降级。
+        executedTrace = raw as TraceResponse
+      }
+    }
 
     project.value = {
       uuid: data.uuid,
       name: data.name ?? 'Untitled project',
       content: mergedContent,
+      source,
+      executedTrace,
     }
-    // #region agent log
-    fetch('http://localhost:7830/ingest/ec16ccae-d4fd-4bf8-935c-7e362c1afec0', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Debug-Session-Id': '454e14',
-      },
-      body: JSON.stringify({
-        sessionId: '454e14',
-        runId: 'initial',
-        hypothesisId: 'H2',
-        location: 'ProjectWorkspaceView.vue:loadProject:project',
-        message: 'Project state after mapping JSON to view model',
-        data: {
-          hasProject: !!project.value,
-          contentLength: project.value ? project.value.content.length : null,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {})
-    // #endregion
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Network error.'
   } finally {
@@ -120,27 +104,6 @@ async function loadProject(uuid: string) {
 
 function ensureUuid() {
   const uuid = route.query.uuid as string | undefined
-  // #region agent log
-  fetch('http://localhost:7830/ingest/ec16ccae-d4fd-4bf8-935c-7e362c1afec0', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Debug-Session-Id': '454e14',
-    },
-    body: JSON.stringify({
-      sessionId: '454e14',
-      runId: 'initial',
-      hypothesisId: 'H3',
-      location: 'ProjectWorkspaceView.vue:ensureUuid',
-      message: 'ensureUuid called with route query',
-      data: {
-        hasUuid: !!uuid,
-        uuidLength: uuid ? String(uuid).length : 0,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {})
-  // #endregion
   if (!uuid || !String(uuid).trim()) {
     router.replace('/project/list')
     return

@@ -327,9 +327,6 @@ async def get_trace(project_uuid: str):
         logger.exception("trace pipeline failed for project %s: %s", project_uuid, e)
         return _error_trace_response(str(e))
 
-    if not steps:
-        return _example_trace_response()
-
     trace_response = asm_steps_to_trace_response(steps)
     try:
         with db.db_context() as session:

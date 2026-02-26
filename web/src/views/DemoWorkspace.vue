@@ -73,6 +73,14 @@
           </div>
         </div>
         <el-tag v-if="currentStepText" type="warning" class="step-info">{{ currentStepText }}</el-tag>
+        <el-tag
+          v-if="showAddressUnavailable"
+          type="info"
+          size="small"
+          class="addr-hint"
+        >
+          地址暂时不可用
+        </el-tag>
       </div>
       <div class="editor-wrapper" :style="{ height: editorHeight + 'px' }">
         <div class="code-lines">
@@ -243,15 +251,16 @@ import { VideoPlay, View, Edit } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { createTraceController, type TraceController } from '@/animation/tracePlayer'
 import { ADL_VERSION } from '@/animation/adl-types'
-import type { TraceResponse, StepSnapshot, AnchorRef } from '@/animation/adl-types'
+import type { TraceResponse, StepSnapshot, AnchorRef, CodeLine } from '@/animation/adl-types'
 
 const props = withDefaults(
   defineProps<{
     initialCode?: string
     projectUuid?: string
     allowSave?: boolean
+    initialTrace?: TraceResponse | null
   }>(),
-  { initialCode: undefined, projectUuid: undefined, allowSave: true }
+  { initialCode: undefined, projectUuid: undefined, allowSave: true, initialTrace: null }
 )
 
 const defaultCode =
@@ -259,6 +268,28 @@ const defaultCode =
   'adds r0, r1, #0x5\n' +
   'MOVS r1, #5'
 const code = ref(props.initialCode ?? defaultCode)
+
+// 执行得到的代码行（带真实地址），仅在项目模式中使用；Demo 模式仍保持原有行为。
+const executionCodeLines = ref<CodeLine[] | null>(null)
+
+watch(
+  () => props.initialCode,
+  (v) => {
+    if (v != null && v !== undefined) code.value = v
+  }
+)
+
+watch(
+  () => props.initialTrace,
+  (trace) => {
+    if (trace && Array.isArray(trace.code) && trace.code.length > 0) {
+      executionCodeLines.value = trace.code
+    } else {
+      executionCodeLines.value = null
+    }
+  },
+  { immediate: true }
+)
 
 const saving = ref(false)
 const saveError = ref('')
@@ -299,33 +330,80 @@ async function saveProjectSource() {
   }
 }
 
-watch(
-  () => props.initialCode,
-  (v) => {
-    if (v != null && v !== undefined) code.value = v
-  }
-)
-
 const codeLines = computed(() => {
   return code.value.split('\n')
 })
 
-// 每行代码对应的指令地址（Thumb 每条指令 2 字节，仅对非空行分配）
+// 地址列显示逻辑：
+// - Demo 模式（无 projectUuid）：使用旧逻辑，根据行号顺序生成示例地址；
+// - 项目模式（有 projectUuid）：
+//   - 若 executionCodeLines 有值：按源码中的有效指令行与 executionCodeLines 逐行对齐，使用 TraceResponse.code.addr；
+//   - 否则：地址全部为空，并在 UI 中提示“地址暂时不可用”。
 const CODE_BASE = 0x0000
+
+function isExecutableSourceLine(line: string): boolean {
+  const trimmed = line.trim()
+  if (!trimmed) return false
+  if (trimmed.startsWith(';')) return false
+  if (trimmed.startsWith('//')) return false
+  return true
+}
+
 const codeLineAddresses = computed(() => {
   const lines = codeLines.value
-  const addrs = []
-  let addr = CODE_BASE
+
+  // Demo 模式：保持原有示例地址逻辑
+  if (!props.projectUuid) {
+    const addrs: string[] = []
+    let addr = CODE_BASE
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trim()
+      if (trimmed) {
+        addrs[i] = '0x' + addr.toString(16).padStart(4, '0').toUpperCase()
+        addr += 2
+      } else {
+        addrs[i] = ''
+      }
+    }
+    return addrs
+  }
+
+  // 项目模式：优先根据 executionCodeLines 中的真实地址进行映射
+  const execLines = executionCodeLines.value
+  const addrs: string[] = new Array(lines.length).fill('')
+
+  if (!execLines || execLines.length === 0) {
+    // 无执行结果：地址为空，UI 会提示“地址暂时不可用”
+    return addrs
+  }
+
+  let j = 0
   for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim()
-    if (trimmed) {
-      addrs[i] = '0x' + addr.toString(16).padStart(4, '0').toUpperCase()
-      addr += 2
+    const line = lines[i]
+    if (!isExecutableSourceLine(line)) {
+      addrs[i] = ''
+      continue
+    }
+    const exec = execLines[j]
+    if (exec && typeof exec.addr === 'string' && exec.addr) {
+      addrs[i] = exec.addr
     } else {
       addrs[i] = ''
     }
+    if (j < execLines.length) {
+      j += 1
+    }
   }
+
   return addrs
+})
+
+const hasExecutionAddresses = computed(() => {
+  return !!(props.projectUuid && executionCodeLines.value && executionCodeLines.value.length > 0)
+})
+
+const showAddressUnavailable = computed(() => {
+  return !!(props.projectUuid && !hasExecutionAddresses.value)
 })
 
 // 当前高亮行索引（0-based），对应 "ADD 2 r0 r1" 所在行
@@ -1010,8 +1088,16 @@ async function runTraceAnimation(trace: TraceResponse) {
   currentTrace.value = trace
   if (trace.initialState) applySnapshotToUI({ pc: '', lineCounter: 0, registers: trace.initialState.registers || {}, flags: trace.initialState.flags || { N: 0, Z: 0, C: 0, V: 0 } })
   if (trace.code && trace.code.length) {
-    code.value = trace.code.map(c => c.text).join('\n')
-    await nextTick()
+    if (!props.projectUuid) {
+      // Demo 模式：仍然使用 TraceResponse 中的代码文本覆盖编辑区，保持现有体验。
+      code.value = trace.code.map(c => c.text).join('\n')
+      await nextTick()
+    } else {
+      // 项目模式：保留编辑区中的源码，仅更新执行地址映射。
+      executionCodeLines.value = trace.code
+    }
+  } else if (props.projectUuid) {
+    executionCodeLines.value = null
   }
   drawArchitecture(0)
   demoOverlay.value.show = false
@@ -1308,6 +1394,10 @@ async function runDemoFallback() {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.addr-hint {
+  margin-left: auto;
 }
 
 .step-info {

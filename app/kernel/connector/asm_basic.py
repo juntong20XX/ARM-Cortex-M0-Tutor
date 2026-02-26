@@ -23,6 +23,8 @@ KNOWN_COMMANDS = (
     ("bl", ("",)),
     ("bx", ("",)),
 
+    ("nop", ("",)),
+
     ("str", ("",)),
     ("strb", ("",)),
 )
@@ -114,6 +116,9 @@ class ASMLineReader:
         params = []
         while args:
             args = args.strip()
+            # Ignore pure comments (e.g. gdb disasm: "nop\t@ (mov r8, r8)")
+            if not args or args.startswith("@"):
+                break
             m = self.RE_SPLIT_PARAMS.match(args)
             if m is None:
                 raise ValueError("known param", args)

@@ -178,13 +178,34 @@
               :key="reg.name"
               class="register-cell"
               :class="{ 'row-read': reg.status === 'read', 'row-write': reg.status === 'write' }"
+              @click="toggleRegisterBase(reg.name)"
             >
-              <div class="register-name" :id="'reg-row-' + reg.name">
-                {{ reg.name }}
-                <el-icon v-if="reg.status === 'read'" class="status-icon read"><View /></el-icon>
-                <el-icon v-if="reg.status === 'write'" class="status-icon write"><Edit /></el-icon>
+              <div class="register-name-wrapper">
+                <div class="register-name" :id="'reg-row-' + reg.name">
+                  {{ reg.name }}
+                  <el-icon v-if="reg.status === 'read'" class="status-icon read"><View /></el-icon>
+                  <el-icon v-if="reg.status === 'write'" class="status-icon write"><Edit /></el-icon>
+                </div>
+                <div class="value-base-bars">
+                  <span
+                    class="base-bar base-bar-dec"
+                    :class="{ active: reg.base === 'dec' }"
+                  ></span>
+                  <span
+                    class="base-bar base-bar-hex"
+                    :class="{ active: reg.base === 'hex' }"
+                  ></span>
+                  <span
+                    class="base-bar base-bar-bin"
+                    :class="{ active: reg.base === 'bin' }"
+                  ></span>
+                </div>
               </div>
-              <span :class="['value-display', reg.status]">{{ reg.value }}</span>
+              <div class="register-value-wrapper">
+                <span :class="['value-display', reg.status]">
+                  {{ formatRegisterValue(reg) }}
+                </span>
+              </div>
             </div>
           </div>
         </el-card>
@@ -417,11 +438,21 @@ const setLineRef = (el, index) => {
   }
 }
 
-const registers = ref(
+type RegisterDisplayBase = 'dec' | 'hex' | 'bin'
+
+interface RegisterRow {
+  name: string
+  value: number
+  status: '' | 'read' | 'write'
+  base: RegisterDisplayBase
+}
+
+const registers = ref<RegisterRow[]>(
   Array.from({ length: 16 }, (_, i) => ({
     name: `R${i}`,
     value: 0,
-    status: '' // 'read' | 'write' | ''
+    status: '',
+    base: i >= 13 ? 'hex' : 'dec'
   }))
 )
 
@@ -697,6 +728,29 @@ function applySnapshotToUI(snapshot: StepSnapshot) {
       const addr = parseInt(addrStr.replace(/^0x/, ''), 16)
       if (!isNaN(addr) && addr >= 0 && addr < MEMORY_SIZE) (memoryStore.value as number[])[addr] = (byteVal as number) & 0xff
     }
+  }
+}
+
+function formatRegisterValue(reg: RegisterRow): string {
+  const v = reg.value >>> 0
+  if (reg.base === 'hex') {
+    return '0x' + (v & 0xF).toString(16).toUpperCase()
+  }
+  if (reg.base === 'bin') {
+    return '0b' + (v & 1)
+  }
+  return String(v)
+}
+
+function toggleRegisterBase(regName: string) {
+  const r = registers.value.find(x => x.name === regName)
+  if (!r) return
+  if (r.base === 'dec') {
+    r.base = 'hex'
+  } else if (r.base === 'hex') {
+    r.base = 'bin'
+  } else {
+    r.base = 'dec'
   }
 }
 
@@ -1109,9 +1163,13 @@ async function runTraceAnimation(trace: TraceResponse) {
   if (controller.totalSteps > 0) {
     await controller.stepTo(0, { animateWaits: false })
     currentStepIndex.value = controller.currentIndex
+    currentStepText.value = ''
+    // 点击 Run 后自动开始播放动画
+    playFromCurrent()
+  } else {
+    isAnimating.value = false
+    currentStepText.value = ''
   }
-  isAnimating.value = false
-  currentStepText.value = ''
 }
 
 async function runDemoFromMockTrace() {
@@ -1158,6 +1216,10 @@ async function playFromCurrent() {
     isPlaying.value = false
     isPaused.value = false
     isAnimating.value = false
+    // 播放结束后移除箭头等动画内容，恢复画布与寄存器高亮
+    demoOverlay.value.show = false
+    setCanvasFocusStep('None')
+    ;(registers.value as RegisterRow[]).forEach(r => { r.status = '' })
     if (controller.currentIndex === controller.totalSteps - 1 && controller.totalSteps > 0) {
       currentStepText.value = 'Execution Completed'
       setTimeout(() => {
@@ -1741,6 +1803,13 @@ canvas {
   transition: all 0.3s ease;
 }
 
+.register-name-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
 .register-cell.row-read {
   background-color: rgba(230, 162, 60, 0.08);
   border-color: rgba(230, 162, 60, 0.3);
@@ -1763,26 +1832,65 @@ canvas {
 .status-icon.read { color: #E6A23C; } /* Warning color for Read */
 .status-icon.write { color: #67C23A; } /* Success color for Write */
 
+.register-value-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
 .value-display {
   display: inline-block;
   padding: 2px 6px;
   border-radius: 4px;
   transition: all 0.3s ease;
+  cursor: pointer;
 }
 
 .value-display.read {
   background-color: rgba(230, 162, 60, 0.2);
   color: #E6A23C;
   font-weight: bold;
-  transform: scale(1.1);
+  transform: scale(1.05);
 }
 
 .value-display.write {
   background-color: rgba(103, 194, 58, 0.2);
   color: #67C23A;
   font-weight: bold;
-  transform: scale(1.1);
-  box-shadow: 0 0 8px rgba(103, 194, 58, 0.5);
+  transform: scale(1.05);
+  box-shadow: 0 0 6px rgba(103, 194, 58, 0.45);
+}
+
+.value-base-bars {
+  display: flex;
+  gap: 2px;
+}
+
+.base-bar {
+  width: 9px;
+  height: 3px;
+  border-radius: 999px;
+  background-color: #e5e7eb;
+  transition: all 0.2s ease;
+  display: none;
+}
+
+.base-bar-dec {
+  background-color: #409eff;
+}
+
+.base-bar-hex {
+  background-color: #e6a23c;
+}
+
+.base-bar-bin {
+  background-color: #67c23a;
+}
+
+.base-bar.active {
+  display: block;
+  transform: translateY(-1px);
 }
 
 .card-header:has(.memory-range-controls) {

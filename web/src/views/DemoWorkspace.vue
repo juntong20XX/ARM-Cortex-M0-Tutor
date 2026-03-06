@@ -169,7 +169,6 @@
           <template #header>
             <div class="card-header">
               <span>Registers</span>
-              <el-tag size="small" type="info">R0 = R1 + 0x5, R1 = 5</el-tag>
             </div>
           </template>
           <div class="registers-grid">

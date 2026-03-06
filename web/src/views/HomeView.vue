@@ -47,9 +47,10 @@ onMounted(load)
 
 <style scoped>
 .panel {
+  width: 100%;
   max-width: 1280px;
   margin: 0 auto;
-  padding: 24px 20px 28px;
+  padding: 2.5vh 2vw 3vh;
   border-radius: 18px;
   border: 1px solid #e5e7eb;
   background: #ffffff;

@@ -45,46 +45,38 @@ class GroupPermissionStrategy(str, PyEnum):
     REJECT = "reject"  # 拒绝，不允许登录
 
 
-# 用户-组 多对多关联表
+# 用户-用户组 多对多关联表
 user_group_association = Table(
     "user_group_association",
     DBBase.metadata,
     Column("user_id", String(36), ForeignKey("users.uuid"), primary_key=True),
-    Column("group_id", String(36), ForeignKey("groups.uuid"), primary_key=True),
+    Column("user_group_id", String(36), ForeignKey("user_groups.uuid"), primary_key=True),
 )
 
-# 组-可管理用户 多对多关联表
-group_managed_users_association = Table(
-    "group_managed_users_association",
+# 用户组-可管理用户 多对多关联表
+user_group_managed_users_association = Table(
+    "user_group_managed_users_association",
     DBBase.metadata,
-    Column("group_id", String(36), ForeignKey("groups.uuid"), primary_key=True),
+    Column("user_group_id", String(36), ForeignKey("user_groups.uuid"), primary_key=True),
     Column("user_id", String(36), ForeignKey("users.uuid"), primary_key=True),
 )
 
-# 组-可管理项目 多对多关联表
-group_managed_projects_association = Table(
-    "group_managed_projects_association",
+# 用户组-可管理组 多对多关联表（自引用）
+user_group_managed_groups_association = Table(
+    "user_group_managed_groups_association",
     DBBase.metadata,
-    Column("group_id", String(36), ForeignKey("groups.uuid"), primary_key=True),
-    Column("project_id", String(36), ForeignKey("projects.uuid"), primary_key=True),
-)
-
-# 组-可管理组 多对多关联表（自引用）
-group_managed_groups_association = Table(
-    "group_managed_groups_association",
-    DBBase.metadata,
-    Column("manager_group_id", String(36), ForeignKey("groups.uuid"), primary_key=True),
-    Column("managed_group_id", String(36), ForeignKey("groups.uuid"), primary_key=True),
+    Column("manager_user_group_id", String(36), ForeignKey("user_groups.uuid"), primary_key=True),
+    Column("managed_user_group_id", String(36), ForeignKey("user_groups.uuid"), primary_key=True),
 )
 
 
-class DBGroup(DBBase):
+class DBUserGroup(DBBase):
     """
     用户组模型，用于权限管理。
-    每个用户可以属于多个组，每个组可以包含多个用户。
-    组可以管理用户、项目和其它组。
+    每个用户可以属于多个用户组，每个用户组可以包含多个用户（成员仅限用户）。
+    用户组可以管理用户以及其它用户组。
     """
-    __tablename__ = "groups"
+    __tablename__ = "user_groups"
 
     uuid: Mapped[str] = mapped_column(String(36), primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
     name: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
@@ -96,34 +88,29 @@ class DBGroup(DBBase):
         onupdate=lambda: datetime.datetime.now(datetime.timezone.utc)
     )
 
-    # 未匹配处理策略：当组名没有映射到项目组名时的处理策略
+    # 未匹配处理策略：当组名没有映射到用户组名时的处理策略
     unmapped_group_strategy: Mapped[GroupPermissionStrategy] = mapped_column(
         Enum(GroupPermissionStrategy, native_enum=False, length=20),
         nullable=False,
         default=GroupPermissionStrategy.REJECT
     )
 
-    # 多对多关系: 组包含的用户
+    # 多对多关系: 用户组包含的用户（成员仅限用户）
     users: Mapped[list["DBUser"]] = relationship(
-        "DBUser", secondary=user_group_association, back_populates="groups"
+        "DBUser", secondary=user_group_association, back_populates="user_groups"
     )
 
-    # 多对多关系: 组可管理的用户
+    # 多对多关系: 用户组可管理的用户
     managed_users: Mapped[list["DBUser"]] = relationship(
-        "DBUser", secondary=group_managed_users_association
+        "DBUser", secondary=user_group_managed_users_association
     )
 
-    # 多对多关系: 组可管理的项目
-    managed_projects: Mapped[list["DBProject"]] = relationship(
-        "DBProject", secondary=group_managed_projects_association
-    )
-
-    # 多对多关系: 组可管理的其他组（自引用）
-    managed_groups: Mapped[list["DBGroup"]] = relationship(
-        "DBGroup",
-        secondary=group_managed_groups_association,
-        primaryjoin="DBGroup.uuid == group_managed_groups_association.c.manager_group_id",
-        secondaryjoin="DBGroup.uuid == group_managed_groups_association.c.managed_group_id"
+    # 多对多关系: 用户组可管理的其他用户组（自引用）
+    managed_groups: Mapped[list["DBUserGroup"]] = relationship(
+        "DBUserGroup",
+        secondary=user_group_managed_groups_association,
+        primaryjoin="DBUserGroup.uuid == user_group_managed_groups_association.c.manager_user_group_id",
+        secondaryjoin="DBUserGroup.uuid == user_group_managed_groups_association.c.managed_user_group_id"
     )
 
 
@@ -153,8 +140,8 @@ class OAuthProvider(DBBase):
     user_info_url: Mapped[str] = mapped_column(String(500), nullable=False)
     scope: Mapped[str] = mapped_column(String(500), nullable=False)
 
-    # 组映射：存储供应商组名到项目组名的对应关系
-    # 格式：{"供应商组名1": "项目组名1", "供应商组名2": "项目组名2", ...}
+    # 组映射：存储供应商组名到用户组名的对应关系
+    # 格式：{"供应商组名1": "用户组名1", "供应商组名2": "用户组名2", ...}
     group_mapping: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, default=None)
 
     # 未映射组策略：当供应商组名没有在 group_mapping 中找到对应关系时的处理策略
@@ -226,9 +213,9 @@ class DBUser(DBBase):
         "OAuthAuthentication", back_populates="user", uselist=False
     )
 
-    # 多对多关系: 用户所属的组
-    groups: Mapped[list["DBGroup"]] = relationship(
-        "DBGroup", secondary=user_group_association, back_populates="users"
+    # 多对多关系: 用户所属的用户组
+    user_groups: Mapped[list["DBUserGroup"]] = relationship(
+        "DBUserGroup", secondary=user_group_association, back_populates="users"
     )
 
     # 关系的定义

@@ -14,7 +14,7 @@ def get_user_base_info_dict(session: Session, uuid: str) -> dict:
         "uuid": user.uuid,
         "display_name": user.username,
         "email": user.email,
-        "groups": [i.name for i in user.groups],
+        "groups": [i.name for i in user.user_groups],
         "join_date": user.created_at,
         "last_login": user.last_login,
         "login_source": user.last_login_source,

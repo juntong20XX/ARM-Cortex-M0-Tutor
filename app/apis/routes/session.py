@@ -118,7 +118,7 @@ async def login_oauth(request: Request, provider_name: str):
                 "uuid": user.uuid,
                 "display_name": user.username,
                 "email": user.email,
-                "groups": [group.name for group in user.groups],
+                "groups": [ug.name for ug in user.user_groups],
                 "join_date": user.created_at,
                 "last_login": user.last_login,
                 "login_source": LoginSource.oauth,

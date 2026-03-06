@@ -1,7 +1,7 @@
 """
 
 """
-from .models import (DBUser, DBProject, OAuthProvider, PasswordAuth, OAuthAuthentication, DBGroup,
+from .models import (DBUser, DBProject, OAuthProvider, PasswordAuth, OAuthAuthentication, DBUserGroup,
                      GroupMappingStrategy, GroupPermissionStrategy, UserLoginSource)
 from ..core.security import get_password_hash
 
@@ -382,35 +382,35 @@ def add_user(session: Session,
             'password_hash': get_password_hash(password)
         }
 
-    # 处理 group
-    # -- 处理 OAuth Group
-    group_objs: list[DBGroup] = []
+    # 处理 user_group
+    # -- 处理 OAuth 用户组
+    user_group_objs: list[DBUserGroup] = []
     if oauth_groups and provider:
         group_mapping = provider.group_mapping or {}
         unmapped_strategy = provider.unmapped_group_strategy
         mapped_group_names = apply_oauth_group_mapping(group_mapping, unmapped_strategy, oauth_groups)
 
-        # 将映射后的组添加到用户
+        # 将映射后的用户组添加到用户
         for group_name in mapped_group_names:
-            group_list = find_group_by_name(session, group_name)
-            if not group_list:
-                raise KeyError(f"Mapped group '{group_name}' not found")
-            if group_list[0] not in group_objs:
-                group_objs.append(group_list[0])
-    # -- 将用户添加到指定的组（直接指定的组，不经过映射）
+            ug_list = find_user_group_by_name(session, group_name)
+            if not ug_list:
+                raise KeyError(f"Mapped user group '{group_name}' not found")
+            if ug_list[0] not in user_group_objs:
+                user_group_objs.append(ug_list[0])
+    # -- 将用户添加到指定的用户组（直接指定，不经过映射）
     if groups:
         for group_name in groups:
-            group_list = find_group_by_name(session, group_name)
-            if not group_list:
-                raise KeyError(f"Group '{group_name}' not found")
-            if group_list[0] not in group_objs:
-                group_objs.append(group_list[0])
+            ug_list = find_user_group_by_name(session, group_name)
+            if not ug_list:
+                raise KeyError(f"User group '{group_name}' not found")
+            if ug_list[0] not in user_group_objs:
+                user_group_objs.append(ug_list[0])
 
     new_user = DBUser(**kwarg)
     # Add to session and optionally commit
     session.add(new_user)
-    # set group
-    new_user.groups.extend(group_objs)
+    # set user_groups
+    new_user.user_groups.extend(user_group_objs)
 
     if oauth_name_sub:
         oauth_auth = OAuthAuthentication(user=new_user, **oauth_auth_kwargs)
@@ -639,41 +639,41 @@ def update_provider(session: Session,
 
 # ==================== 用户组相关函数 ====================
 
-def find_group_by_name(session: Session, group_name: str) -> list[DBGroup]:
+def find_user_group_by_name(session: Session, user_group_name: str) -> list[DBUserGroup]:
     """
     根据组名查找用户组，组名需要完全匹配。
     :param session: a db Session
-    :param group_name: str, 组名
+    :param user_group_name: str, 用户组名
     :return: 匹配的用户组列表
     """
-    return session.query(DBGroup).filter_by(name=group_name).all()
+    return session.query(DBUserGroup).filter_by(name=user_group_name).all()
 
 
-def find_group_by_uuid(session: Session, group_uuid: str) -> list[DBGroup]:
+def find_user_group_by_uuid(session: Session, user_group_uuid: str) -> list[DBUserGroup]:
     """
     根据 UUID 查找用户组。
     :param session: a db Session
-    :param group_uuid: str, 组的 UUID
+    :param user_group_uuid: str, 用户组的 UUID
     :return: 匹配的用户组列表
     """
-    return session.query(DBGroup).filter_by(uuid=group_uuid).all()
+    return session.query(DBUserGroup).filter_by(uuid=user_group_uuid).all()
 
 
-def find_all_groups(session: Session) -> list[DBGroup]:
+def find_all_user_groups(session: Session) -> list[DBUserGroup]:
     """
     获取所有用户组。
     :param session: a db Session
     :return: 所有用户组列表
     """
-    return session.query(DBGroup).all()
+    return session.query(DBUserGroup).all()
 
 
-def add_group(session: Session,
-              name: str,
-              description: str = None,
-              uuid: str = None,
-              unmapped_group_strategy: GroupPermissionStrategy = GroupPermissionStrategy.REJECT,
-              commit: bool = False) -> DBGroup:
+def add_user_group(session: Session,
+                   name: str,
+                   description: str = None,
+                   uuid: str = None,
+                   unmapped_group_strategy: GroupPermissionStrategy = GroupPermissionStrategy.REJECT,
+                   commit: bool = False) -> DBUserGroup:
     """
     添加新的用户组到数据库。
     
@@ -683,559 +683,280 @@ def add_group(session: Session,
     :param uuid: str, 可选的 UUID，不提供则自动生成
     :param unmapped_group_strategy: GroupPermissionStrategy, 未匹配处理策略 (default: REJECT)
     :param commit: bool, 是否提交会话 (default: False)
-    :return: 创建的 DBGroup 对象
+    :return: 创建的 DBUserGroup 对象
     :raise ValueError: 如果组名已存在
     """
-    # 检查组名是否已存在
-    existing_groups = find_group_by_name(session, name)
-    if existing_groups:
-        raise ValueError(f"Group with name '{name}' already exists")
+    existing = find_user_group_by_name(session, name)
+    if existing:
+        raise ValueError(f"User group with name '{name}' already exists")
 
     kwargs = {
         'name': name,
         'unmapped_group_strategy': unmapped_group_strategy,
         'updated_at': datetime.now(UTC),
     }
-    
     if description is not None:
         kwargs['description'] = description
-    
     if uuid is not None:
         kwargs['uuid'] = uuid
 
-    new_group = DBGroup(**kwargs)
-    session.add(new_group)
-    
+    new_ug = DBUserGroup(**kwargs)
+    session.add(new_ug)
     if commit:
         session.commit()
-        session.refresh(new_group)
+        session.refresh(new_ug)
+    return new_ug
 
-    return new_group
 
-
-def update_group(session: Session,
-                 name: str,
-                 new_name: str = None,
-                 description: str = None,
-                 unmapped_group_strategy: GroupPermissionStrategy = None,
-                 commit: bool = False) -> DBGroup:
+def update_user_group(session: Session,
+                      name: str,
+                      new_name: str = None,
+                      description: str = None,
+                      unmapped_group_strategy: GroupPermissionStrategy = None,
+                      commit: bool = False) -> DBUserGroup:
     """
     更新现有用户组信息。
-    
-    :param session: a db Session
-    :param name: str, 要更新的组名
-    :param new_name: str, 可选的新组名
-    :param description: str, 可选的新描述
-    :param unmapped_group_strategy: GroupPermissionStrategy, 可选的未匹配处理策略
-    :param commit: bool, 是否提交会话 (default: False)
-    :return: 更新后的 DBGroup 对象
-    :raise KeyError: 如果组名不存在
-    :raise ValueError: 如果新组名已被其他组使用
     """
-    groups = find_group_by_name(session, name)
-    if not groups:
-        raise KeyError(f"Group with name '{name}' not found")
-
-    group = groups[0]
+    ugs = find_user_group_by_name(session, name)
+    if not ugs:
+        raise KeyError(f"User group with name '{name}' not found")
+    ug = ugs[0]
 
     if new_name is not None and new_name != name:
-        # 检查新名称是否已被使用
-        existing = find_group_by_name(session, new_name)
+        existing = find_user_group_by_name(session, new_name)
         if existing:
-            raise ValueError(f"Group with name '{new_name}' already exists")
-        group.name = new_name
-
+            raise ValueError(f"User group with name '{new_name}' already exists")
+        ug.name = new_name
     if description is not None:
-        group.description = description
-
+        ug.description = description
     if unmapped_group_strategy is not None:
-        group.unmapped_group_strategy = unmapped_group_strategy
-
-    group.updated_at = datetime.now(UTC)
+        ug.unmapped_group_strategy = unmapped_group_strategy
+    ug.updated_at = datetime.now(UTC)
 
     if commit:
         session.commit()
-        session.refresh(group)
+        session.refresh(ug)
+    return ug
 
-    return group
 
-
-def delete_group(session: Session, name: str, commit: bool = False) -> bool:
+def delete_user_group(session: Session, name: str, commit: bool = False) -> bool:
     """
     删除用户组。
-    
-    :param session: a db Session
-    :param name: str, 要删除的组名
-    :param commit: bool, 是否提交会话 (default: False)
-    :return: bool, 删除成功返回 True
-    :raise KeyError: 如果组名不存在
     """
-    groups = find_group_by_name(session, name)
-    if not groups:
-        raise KeyError(f"Group with name '{name}' not found")
-
-    group = groups[0]
-    session.delete(group)
-    
+    ugs = find_user_group_by_name(session, name)
+    if not ugs:
+        raise KeyError(f"User group with name '{name}' not found")
+    session.delete(ugs[0])
     if commit:
         session.commit()
-
     return True
 
 
-# ==================== 用户-组关系管理函数 ====================
+# ==================== 用户-用户组关系管理函数 ====================
 
-def add_user_to_group(session: Session, 
-                      user_uuid: str, 
-                      group_name: str,
-                      commit: bool = False) -> DBUser:
-    """
-    将用户添加到指定用户组。
-    
-    :param session: a db Session
-    :param user_uuid: str, 用户的 UUID
-    :param group_name: str, 组名
-    :param commit: bool, 是否提交会话 (default: False)
-    :return: 更新后的 DBUser 对象
-    :raise KeyError: 如果用户或组不存在
-    :raise ValueError: 如果用户已在该组中
-    """
-    # 查找用户
-    user = session.query(DBUser).filter_by(uuid=user_uuid).first()
-    if not user:
-        raise KeyError(f"User with UUID '{user_uuid}' not found")
-
-    # 查找组
-    groups = find_group_by_name(session, group_name)
-    if not groups:
-        raise KeyError(f"Group with name '{group_name}' not found")
-    
-    group = groups[0]
-
-    # 检查用户是否已在组中
-    if group in user.groups:
-        raise ValueError(f"User '{user.username}' is already in group '{group_name}'")
-
-    user.groups.append(group)
-
-    if commit:
-        session.commit()
-        session.refresh(user)
-
-    return user
-
-
-def remove_user_from_group(session: Session, 
-                           user_uuid: str, 
-                           group_name: str,
+def add_user_to_user_group(session: Session,
+                           user_uuid: str,
+                           user_group_name: str,
                            commit: bool = False) -> DBUser:
     """
-    将用户从指定用户组中移除。
-    
-    :param session: a db Session
-    :param user_uuid: str, 用户的 UUID
-    :param group_name: str, 组名
-    :param commit: bool, 是否提交会话 (default: False)
-    :return: 更新后的 DBUser 对象
-    :raise KeyError: 如果用户或组不存在
-    :raise ValueError: 如果用户不在该组中
+    将用户添加到指定用户组。
     """
-    # 查找用户
     user = session.query(DBUser).filter_by(uuid=user_uuid).first()
     if not user:
         raise KeyError(f"User with UUID '{user_uuid}' not found")
-
-    # 查找组
-    groups = find_group_by_name(session, group_name)
-    if not groups:
-        raise KeyError(f"Group with name '{group_name}' not found")
-    
-    group = groups[0]
-
-    # 检查用户是否在组中
-    if group not in user.groups:
-        raise ValueError(f"User '{user.username}' is not in group '{group_name}'")
-
-    user.groups.remove(group)
-
+    ugs = find_user_group_by_name(session, user_group_name)
+    if not ugs:
+        raise KeyError(f"User group with name '{user_group_name}' not found")
+    ug = ugs[0]
+    if ug in user.user_groups:
+        raise ValueError(f"User '{user.username}' is already in user group '{user_group_name}'")
+    user.user_groups.append(ug)
     if commit:
         session.commit()
         session.refresh(user)
-
     return user
 
 
-def get_user_managed_groups(session: Session, user_uuid: str) -> list[DBGroup]:
+def remove_user_from_user_group(session: Session,
+                                user_uuid: str,
+                                user_group_name: str,
+                                commit: bool = False) -> DBUser:
+    """
+    将用户从指定用户组中移除。
+    """
+    user = session.query(DBUser).filter_by(uuid=user_uuid).first()
+    if not user:
+        raise KeyError(f"User with UUID '{user_uuid}' not found")
+    ugs = find_user_group_by_name(session, user_group_name)
+    if not ugs:
+        raise KeyError(f"User group with name '{user_group_name}' not found")
+    ug = ugs[0]
+    if ug not in user.user_groups:
+        raise ValueError(f"User '{user.username}' is not in user group '{user_group_name}'")
+    user.user_groups.remove(ug)
+    if commit:
+        session.commit()
+        session.refresh(user)
+    return user
+
+
+def get_user_managed_user_groups(session: Session, user_uuid: str) -> list[DBUserGroup]:
     """
     获取用户所属的所有用户组。
-    注意不会展开 group manage groups, 此函数不能作为权限检查.
-    :param session: a db Session
-    :param user_uuid: str, 用户的 UUID
-    :return: 用户所属的用户组列表
-    :raise KeyError: 如果用户不存在
+    注意不会展开 user_group manage user_group，此函数不能作为权限检查。
     """
     user = session.query(DBUser).filter_by(uuid=user_uuid).first()
     if not user:
         raise KeyError(f"User with UUID '{user_uuid}' not found")
+    return list(user.user_groups)
 
-    return list(user.groups)
 
-
-def get_group_users(session: Session, group_name: str) -> list[DBUser]:
+def get_user_group_users(session: Session, user_group_name: str) -> list[DBUser]:
     """
     获取用户组中的所有用户。
-    
-    :param session: a db Session
-    :param group_name: str, 组名
-    :return: 组中的用户列表
-    :raise KeyError: 如果组不存在
     """
-    groups = find_group_by_name(session, group_name)
-    if not groups:
-        raise KeyError(f"Group with name '{group_name}' not found")
-
-    group = groups[0]
-    return list(group.users)
+    ugs = find_user_group_by_name(session, user_group_name)
+    if not ugs:
+        raise KeyError(f"User group with name '{user_group_name}' not found")
+    return list(ugs[0].users)
 
 
-def find_users_by_group(session: Session, group_name: str) -> list[DBUser]:
+def find_users_by_user_group(session: Session, user_group_name: str) -> list[DBUser]:
     """
-    通过组名查找属于该组的所有用户。
-    
-    :param session: a db Session
-    :param group_name: str, 组名
-    :return: 属于该组的用户列表
-    :raise KeyError: 如果组不存在
+    通过用户组名查找属于该组的所有用户。
     """
-    return get_group_users(session, group_name)
+    return get_user_group_users(session, user_group_name)
 
 
-# ==================== 组可管理用户相关函数 ====================
+# ==================== 用户组可管理用户相关函数 ====================
 
-def add_managed_user_to_group(session: Session,
-                              group_name: str,
-                              user_uuid: str,
-                              commit: bool = False) -> DBGroup:
-    """
-    将用户添加到组可管理用户列表。
-    
-    :param session: a db Session
-    :param group_name: str, 组名
-    :param user_uuid: str, 用户的 UUID
-    :param commit: bool, 是否提交会话 (default: False)
-    :return: 更新后的 DBGroup 对象
-    :raise KeyError: 如果组或用户不存在
-    :raise ValueError: 如果用户已在可管理列表中
-    """
-    groups = find_group_by_name(session, group_name)
-    if not groups:
-        raise KeyError(f"Group with name '{group_name}' not found")
-    
-    group = groups[0]
-    
-    user = session.query(DBUser).filter_by(uuid=user_uuid).first()
-    if not user:
-        raise KeyError(f"User with UUID '{user_uuid}' not found")
-    
-    if user in group.managed_users:
-        raise ValueError(f"User '{user.username}' is already in managed users list of group '{group_name}'")
-    
-    group.managed_users.append(user)
-    
-    if commit:
-        session.commit()
-        session.refresh(group)
-    
-    return group
-
-
-def remove_managed_user_from_group(session: Session,
-                                   group_name: str,
+def add_managed_user_to_user_group(session: Session,
+                                   user_group_name: str,
                                    user_uuid: str,
-                                   commit: bool = False) -> DBGroup:
+                                   commit: bool = False) -> DBUserGroup:
     """
-    从组可管理用户列表中移除用户。
-    
-    :param session: a db Session
-    :param group_name: str, 组名
-    :param user_uuid: str, 用户的 UUID
-    :param commit: bool, 是否提交会话 (default: False)
-    :return: 更新后的 DBGroup 对象
-    :raise KeyError: 如果组或用户不存在
-    :raise ValueError: 如果用户不在可管理列表中
+    将用户添加到用户组可管理用户列表。
     """
-    groups = find_group_by_name(session, group_name)
-    if not groups:
-        raise KeyError(f"Group with name '{group_name}' not found")
-    
-    group = groups[0]
-    
+    ugs = find_user_group_by_name(session, user_group_name)
+    if not ugs:
+        raise KeyError(f"User group with name '{user_group_name}' not found")
+    ug = ugs[0]
     user = session.query(DBUser).filter_by(uuid=user_uuid).first()
     if not user:
         raise KeyError(f"User with UUID '{user_uuid}' not found")
-    
-    if user not in group.managed_users:
-        raise ValueError(f"User '{user.username}' is not in managed users list of group '{group_name}'")
-    
-    group.managed_users.remove(user)
-    
+    if user in ug.managed_users:
+        raise ValueError(f"User '{user.username}' is already in managed users list of user group '{user_group_name}'")
+    ug.managed_users.append(user)
     if commit:
         session.commit()
-        session.refresh(group)
-    
-    return group
+        session.refresh(ug)
+    return ug
 
 
-def get_group_managed_users(session: Session, group_name: str) -> list[DBUser]:
+def remove_managed_user_from_user_group(session: Session,
+                                        user_group_name: str,
+                                        user_uuid: str,
+                                        commit: bool = False) -> DBUserGroup:
     """
-    获取组可管理的所有用户。
-    
-    :param session: a db Session
-    :param group_name: str, 组名
-    :return: 组可管理的用户列表
-    :raise KeyError: 如果组不存在
+    从用户组可管理用户列表中移除用户。
     """
-    groups = find_group_by_name(session, group_name)
-    if not groups:
-        raise KeyError(f"Group with name '{group_name}' not found")
-    
-    group = groups[0]
-    return list(group.managed_users)
-
-
-# ==================== 组可管理项目相关函数 ====================
-
-def add_managed_project_to_group(session: Session,
-                                 group_name: str,
-                                 project_uuid: str,
-                                 commit: bool = False) -> DBGroup:
-    """
-    将项目添加到组可管理项目列表。
-    
-    :param session: a db Session
-    :param group_name: str, 组名
-    :param project_uuid: str, 项目的 UUID
-    :param commit: bool, 是否提交会话 (default: False)
-    :return: 更新后的 DBGroup 对象
-    :raise KeyError: 如果组或项目不存在
-    :raise ValueError: 如果项目已在可管理列表中
-    """
-    groups = find_group_by_name(session, group_name)
-    if not groups:
-        raise KeyError(f"Group with name '{group_name}' not found")
-    
-    group = groups[0]
-    
-    project = session.query(DBProject).filter_by(uuid=project_uuid).first()
-    if not project:
-        raise KeyError(f"Project with UUID '{project_uuid}' not found")
-    
-    if project in group.managed_projects:
-        raise ValueError(f"Project '{project.name}' is already in managed projects list of group '{group_name}'")
-    
-    group.managed_projects.append(project)
-    
+    ugs = find_user_group_by_name(session, user_group_name)
+    if not ugs:
+        raise KeyError(f"User group with name '{user_group_name}' not found")
+    ug = ugs[0]
+    user = session.query(DBUser).filter_by(uuid=user_uuid).first()
+    if not user:
+        raise KeyError(f"User with UUID '{user_uuid}' not found")
+    if user not in ug.managed_users:
+        raise ValueError(f"User '{user.username}' is not in managed users list of user group '{user_group_name}'")
+    ug.managed_users.remove(user)
     if commit:
         session.commit()
-        session.refresh(group)
-    
-    return group
+        session.refresh(ug)
+    return ug
 
 
-def remove_managed_project_from_group(session: Session,
-                                     group_name: str,
-                                     project_uuid: str,
-                                     commit: bool = False) -> DBGroup:
+def get_user_group_managed_users(session: Session, user_group_name: str) -> list[DBUser]:
     """
-    从组可管理项目列表中移除项目。
-    
-    :param session: a db Session
-    :param group_name: str, 组名
-    :param project_uuid: str, 项目的 UUID
-    :param commit: bool, 是否提交会话 (default: False)
-    :return: 更新后的 DBGroup 对象
-    :raise KeyError: 如果组或项目不存在
-    :raise ValueError: 如果项目不在可管理列表中
+    获取用户组可管理的所有用户。
     """
-    groups = find_group_by_name(session, group_name)
-    if not groups:
-        raise KeyError(f"Group with name '{group_name}' not found")
-    
-    group = groups[0]
-    
-    project = session.query(DBProject).filter_by(uuid=project_uuid).first()
-    if not project:
-        raise KeyError(f"Project with UUID '{project_uuid}' not found")
-    
-    if project not in group.managed_projects:
-        raise ValueError(f"Project '{project.name}' is not in managed projects list of group '{group_name}'")
-    
-    group.managed_projects.remove(project)
-    
+    ugs = find_user_group_by_name(session, user_group_name)
+    if not ugs:
+        raise KeyError(f"User group with name '{user_group_name}' not found")
+    return list(ugs[0].managed_users)
+
+
+# ==================== 用户组可管理组相关函数 ====================
+
+def add_managed_user_group_to_user_group(session: Session,
+                                         manager_user_group_name: str,
+                                         managed_user_group_name: str,
+                                         commit: bool = False) -> DBUserGroup:
+    """
+    将用户组添加到另一个用户组的可管理组列表。
+    """
+    manager_ugs = find_user_group_by_name(session, manager_user_group_name)
+    if len(manager_ugs) != 1:
+        raise KeyError(f"Manager user group with name '{manager_user_group_name}' not found")
+    manager_ug = manager_ugs[0]
+    managed_ugs = find_user_group_by_name(session, managed_user_group_name)
+    if len(managed_ugs) != 1:
+        raise KeyError(f"Managed user group with name '{managed_user_group_name}' not found")
+    managed_ug = managed_ugs[0]
+    if manager_user_group_name == managed_user_group_name:
+        raise ValueError("User group cannot manage itself")
+    if managed_ug in manager_ug.managed_groups:
+        raise ValueError(f"User group '{managed_user_group_name}' is already in managed groups list of '{manager_user_group_name}'")
+    # 循环依赖：若被管理组已管理当前管理组，则形成环
+    if manager_ug in managed_ug.managed_groups:
+        raise ValueError("Circular dependency: managed user group already manages the manager user group")
+    manager_ug.managed_groups.append(managed_ug)
     if commit:
         session.commit()
-        session.refresh(group)
-    
-    return group
+        session.refresh(manager_ug)
+    return manager_ug
 
 
-def get_group_managed_projects(session: Session, group_name: str) -> list[DBProject]:
+def remove_managed_user_group_from_user_group(session: Session,
+                                             manager_user_group_name: str,
+                                             managed_user_group_name: str,
+                                             commit: bool = False) -> DBUserGroup:
     """
-    获取组可管理的所有项目。
-    
-    :param session: a db Session
-    :param group_name: str, 组名
-    :return: 组可管理的项目列表
-    :raise KeyError: 如果组不存在
+    从用户组可管理组列表中移除用户组。
     """
-    groups = find_group_by_name(session, group_name)
-    if not groups:
-        raise KeyError(f"Group with name '{group_name}' not found")
-    
-    group = groups[0]
-    return list(group.managed_projects)
-
-def get_group_managed_projects_uuid(session: Session, group_uuid: str) -> list[DBProject]:
-    """
-    获取组可管理的所有项目。
-
-    :param session: a db Session
-    :param group_uuid: str, 组 UUID
-    :return: 组可管理的项目列表
-    :raise KeyError: 如果组不存在
-    """
-    groups = find_group_by_uuid(session, group_uuid)
-    if not groups:
-        raise KeyError(f"Group with UUID '{group_uuid}' not found")
-
-    group = groups[0]
-    return list(group.managed_projects)
-
-# ==================== 组可管理组相关函数 ====================
-
-def add_managed_group_to_group(session: Session,
-                               manager_group_name: str,
-                               managed_group_name: str,
-                               commit: bool = False) -> DBGroup:
-    """
-    将组添加到另一个组可管理组列表。
-    
-    :param session: a db Session
-    :param manager_group_name: str, 管理组的组名
-    :param managed_group_name: str, 被管理组的组名
-    :param commit: bool, 是否提交会话 (default: False)
-    :return: 更新后的管理组对象
-    :raise KeyError: 如果管理组或被管理组不存在
-    :raise ValueError: 如果被管理组已在可管理列表中，或尝试管理自己
-    """
-    manager_groups = find_group_by_name(session, manager_group_name)
-    if len(manager_groups) != 1:
-        raise KeyError(f"Manager group with name '{manager_group_name}' not found")
-    manager_group = manager_groups[0]
-    
-    managed_groups = find_group_by_name(session, managed_group_name)
-    if len(managed_groups) != 1:
-        raise KeyError(f"Managed group with name '{managed_group_name}' not found")
-    managed_group = managed_groups[0]
-    
-    if manager_group_name == managed_group_name:
-        raise ValueError("Group cannot manage itself")
-    if manager_group.name in (i.name for i in managed_group.managed_groups):
-        raise ValueError(f"Group '{managed_group_name}' is already in managed groups list of group '{manager_group_name}'")
-    
-    manager_group.managed_groups.append(managed_group)
-    
+    manager_ugs = find_user_group_by_name(session, manager_user_group_name)
+    if not manager_ugs:
+        raise KeyError(f"Manager user group with name '{manager_user_group_name}' not found")
+    manager_ug = manager_ugs[0]
+    managed_ugs = find_user_group_by_name(session, managed_user_group_name)
+    if not managed_ugs:
+        raise KeyError(f"Managed user group with name '{managed_user_group_name}' not found")
+    managed_ug = managed_ugs[0]
+    if managed_ug not in manager_ug.managed_groups:
+        raise ValueError(f"User group '{managed_user_group_name}' is not in managed groups list of '{manager_user_group_name}'")
+    manager_ug.managed_groups.remove(managed_ug)
     if commit:
         session.commit()
-        session.refresh(manager_group)
-    
-    return manager_group
+        session.refresh(manager_ug)
+    return manager_ug
 
 
-def remove_managed_group_from_group(session: Session,
-                                    manager_group_name: str,
-                                    managed_group_name: str,
-                                    commit: bool = False) -> DBGroup:
+def get_user_group_managed_groups(session: Session, user_group_name: str) -> list[DBUserGroup]:
     """
-    从组可管理组列表中移除组。
-    
-    :param session: a db Session
-    :param manager_group_name: str, 管理组的组名
-    :param managed_group_name: str, 被管理组的组名
-    :param commit: bool, 是否提交会话 (default: False)
-    :return: 更新后的管理组对象
-    :raise KeyError: 如果管理组或被管理组不存在
-    :raise ValueError: 如果被管理组不在可管理列表中
+    获取用户组可管理的所有其他用户组。
     """
-    manager_groups = find_group_by_name(session, manager_group_name)
-    if not manager_groups:
-        raise KeyError(f"Manager group with name '{manager_group_name}' not found")
-    
-    manager_group = manager_groups[0]
-    
-    managed_groups = find_group_by_name(session, managed_group_name)
-    if not managed_groups:
-        raise KeyError(f"Managed group with name '{managed_group_name}' not found")
-    
-    managed_group = managed_groups[0]
-    
-    if managed_group not in manager_group.managed_groups:
-        raise ValueError(f"Group '{managed_group_name}' is not in managed groups list of group '{manager_group_name}'")
-    
-    manager_group.managed_groups.remove(managed_group)
-    
-    if commit:
-        session.commit()
-        session.refresh(manager_group)
-    
-    return manager_group
+    ugs = find_user_group_by_name(session, user_group_name)
+    if not ugs:
+        raise KeyError(f"User group with name '{user_group_name}' not found")
+    return list(ugs[0].managed_groups)
 
-def get_group_managed_groups(session: Session, group_name: str) -> list[DBGroup]:
-    """
-    获取组可管理的所有其他组。
-    
-    :param session: a db Session
-    :param group_name: str, 组名
-    :return: 组可管理的其他组列表
-    :raise KeyError: 如果组不存在
-    """
-    groups = find_group_by_name(session, group_name)
-    if not groups:
-        raise KeyError(f"Group with name '{group_name}' not found")
-    
-    group = groups[0]
-    return list(group.managed_groups)
 
-def get_group_managed_groups_uuid(session: Session, group_uuid: str) -> list[DBGroup]:
+def get_user_group_managed_groups_uuid(session: Session, user_group_uuid: str) -> list[DBUserGroup]:
     """
-    获取组可管理的所有其他组.
-
-    :param session: a db Session
-    :param group_uuid: str, 组名
-    :return: 组可管理的其他组列表
-    :raise KeyError: 如果组不存在
+    根据用户组 UUID 获取该组可管理的所有其他用户组。
     """
-    groups = find_group_by_uuid(session, group_uuid)
-    if not groups:
-        raise KeyError(f"Group with UUID '{group_uuid}' not found")
-
-    group = groups[0]
-    return list(group.managed_groups)
-
-def get_groups_directly_managing_project(session: Session, project_uuid: str) -> list[DBGroup]:
-    """
-    直接管理项目的组列表.
-    :param session:
-    :param project_uuid:
-    :return:
-    """
-    from .models import group_managed_projects_association
-    rows = session.query(group_managed_projects_association.c.group_id).filter(
-        group_managed_projects_association.c.project_id == project_uuid
-    ).all()
-    if not rows:
-        return []
-    group_uuids = [r[0] for r in rows]
-    return session.query(DBGroup).filter(DBGroup.uuid.in_(group_uuids)).all()
-
+    ugs = find_user_group_by_uuid(session, user_group_uuid)
+    if not ugs:
+        raise KeyError(f"User group with UUID '{user_group_uuid}' not found")
+    return list(ugs[0].managed_groups)
 

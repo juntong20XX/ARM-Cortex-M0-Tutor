@@ -22,19 +22,19 @@ def add_user_from_oauth_info(session: Session, provider_name: str, user_info: di
 
 def check_group_permission_of_other_group(session: Session, group_uuid: str, other_group_uuid: str) -> bool:
     """
-    检查当前用户组是否有权限访问指定组
+    检查当前用户组是否有权限访问指定用户组。
     :param session:
-    :param group_uuid:
-    :param other_group_uuid:
+    :param group_uuid: 当前用户组 UUID
+    :param other_group_uuid: 待检查的用户组 UUID
     :return:
     """
     if group_uuid == other_group_uuid:
         return True
     try:
-        group = db.find_group_by_uuid(session, group_uuid)[0]
-        other = db.find_user_by_uuid(session, other_group_uuid)[0]
+        group = db.find_user_group_by_uuid(session, group_uuid)[0]
+        other = db.find_user_group_by_uuid(session, other_group_uuid)[0]
     except IndexError:
-        raise KeyError(f"Group uuid {group_uuid} not found.")
+        raise KeyError(f"User group uuid {group_uuid} not found.")
     if group.unmapped_group_strategy == db.GroupPermissionStrategy.PERMIT:
         return True
     if other.uuid in (i.uuid for i in group.managed_groups):
@@ -58,10 +58,10 @@ def check_user_permission_of_other_user(session: Session, user_uuid: str, other_
         other = db.find_user_by_uuid(session, other_user_uuid)[0]
     except IndexError:
         raise KeyError(f"User uuid {user_uuid} not found.")
-    for user_group in user.groups:
+    for user_group in user.user_groups:
         if user_group.unmapped_group_strategy == db.GroupPermissionStrategy.PERMIT:
             return True
-        for other_user_group in other.groups:
+        for other_user_group in other.user_groups:
             if other_user_group.uuid == user_group.uuid:
                 return True
             if other_user_group.uuid in (i.uuid for i in user_group.managed_groups):
@@ -70,22 +70,12 @@ def check_user_permission_of_other_user(session: Session, user_uuid: str, other_
 
 def check_user_permission_of_project(session: Session, user_uuid: str, project_uuid: str) -> bool:
     """
-
+    检查用户是否有权限访问项目。仅项目属主有权限（用户组不再管理项目）。
     :param session:
     :param user_uuid:
     :param project_uuid:
     :raise KeyError: user not found
     :return:
     """
-    # 1. 项目直接属于用户
     user = db.find_user_by_uuid(session, user_uuid)[0]
-    if project_uuid in (i.uuid for i in user.projects):
-        return True
-    # 2. 项目属于用户直接管理的用户组
-    user_managed_groups = db.get_user_managed_groups(session, user_uuid)
-    groups = db.get_groups_directly_managing_project(session, project_uuid)
-    if set(i.uuid for i in user_managed_groups) & set(i.uuid for i in groups):
-        return True
-    # 3. 项目属于用户通过用户组间接管理的用户组
-    # 4. 项目属于用户通过用户组管理的用户管理的管理组
-    # 5. 项目
+    return project_uuid in (i.uuid for i in user.projects)

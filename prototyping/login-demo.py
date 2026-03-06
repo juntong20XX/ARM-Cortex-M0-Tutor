@@ -31,7 +31,7 @@ setting = settings.AppSetting(
 if __name__ == "__main__":
     db.init_database(setting)
     with db.db_context() as session:
-        db.add_group(session, "admin")
+        db.add_user_group(session, name="admin")
         db.add_provider(session,
                         name="authelia",
                         client_id="ACT",

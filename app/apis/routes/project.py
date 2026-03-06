@@ -11,6 +11,7 @@ XXX: 跳过权限认证.
 from dataclasses import asdict
 
 from ... import database as db
+from ... import services
 from .. import models
 from ...kernel import ASMLineReader, ASMLine, ASMParam
 
@@ -92,14 +93,15 @@ async def get_project_info(project_uuid: str):
 
 
 @router.put("/project/source/{project_uuid}", response_model=models.BaseResponse)
-async def update_project_source(project_uuid: str, body: models.ProjectSourceUpdate):
+async def update_project_source(request: Request, project_uuid: str, body: models.ProjectSourceUpdate):
     """
     更新项目源代码；解析成功后同步刷新 code（ASMLine 序列化缓存），并清空 executed。
+    需已登录且为项目属主或 administrator 组用户。
 
     :param project_uuid: 项目 UUID
     :param body: 包含新源代码的请求体
     :return: 操作结果
-    :raise HTTPException: 项目未找到
+    :raise HTTPException: 项目未找到或无权操作
     """
     try:
         asm_list = _source_to_asm_list_for_project(body.source)
@@ -110,7 +112,14 @@ async def update_project_source(project_uuid: str, body: models.ProjectSourceUpd
 
     code_payload = _asm_list_to_serializable(asm_list)
 
+    user = request.session.get("user")
     with db.db_context() as session:
+        projects = db.find_project_by_uuid(session, project_uuid)
+        if not projects:
+            raise HTTPException(status_code=404, detail=f"Project '{project_uuid}' not found")
+        project = projects[0]
+        if not services.can_manage_project(session, user, project):
+            raise HTTPException(status_code=403, detail="You can only update your own project")
         try:
             db.update_project(
                 session,
@@ -182,7 +191,7 @@ async def update_project_meta(request: Request, project_uuid: str, body: models.
         if not projects:
             raise HTTPException(status_code=404, detail=f"Project '{project_uuid}' not found")
         project = projects[0]
-        if project.owner_id != user_uuid:
+        if not services.can_manage_project(session, user, project):
             raise HTTPException(status_code=403, detail="You can only update your own project")
 
         kwargs = {}
@@ -219,7 +228,7 @@ async def delete_project_endpoint(request: Request, project_uuid: str):
         if not projects:
             raise HTTPException(status_code=404, detail=f"Project '{project_uuid}' not found")
         project = projects[0]
-        if project.owner_id != user_uuid:
+        if not services.can_manage_project(session, user, project):
             raise HTTPException(status_code=403, detail="You can only delete your own project")
 
         try:

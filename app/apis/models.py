@@ -30,6 +30,13 @@ class UserBaseInfo(BaseModel):
     login_source: LoginSource
 
 
+class UsersListResponse(BaseModel):
+    """
+    用户列表响应模型，供管理员使用。
+    """
+    items: list[UserBaseInfo]
+
+
 class ProjectInfo(BaseModel):
     """
     项目信息响应模型
@@ -71,6 +78,16 @@ class BaseResponse(BaseModel):
     """
     success: bool
     msg: str
+
+
+class AnnouncementCreateRequest(BaseModel):
+    """
+    创建告示的请求模型。
+    visibleGroupNames 空或 None 表示公开。
+    """
+    title: str
+    content: str
+    visibleGroupNames: list[str] | None = None
 
 
 class Announcement(BaseModel):

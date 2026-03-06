@@ -31,7 +31,7 @@ setting = settings.AppSetting(
 if __name__ == "__main__":
     db.init_database(setting)
     with db.db_context() as session:
-        db.add_user_group(session, name="admin")
+        # db.add_user_group(session, name="admin")
         db.add_provider(session,
                         name="authelia",
                         client_id="ACT",
@@ -39,7 +39,7 @@ if __name__ == "__main__":
                         authorize_url="https://fyp-auth.hogwarts.ac/.well-known/openid-configuration",
                         token_url="https://fyp-act.hogwarts.ac/api/login-oauth/authelia",
                         user_info_url="https://exmple.com",
-                        group_mapping={"admins": "admin"},
+                        group_mapping={"admins": "administrator"},
                         unmapped_group_strategy=db.GroupMappingStrategy.IGNORE,
                         scope="openid profile email groups")
     import uvicorn

@@ -59,6 +59,73 @@ def find_visible_announcements(session: Session, user_uuid: str | None = None) -
     return result
 
 
+def find_announcement_by_uuid(session: Session, announcement_uuid: str) -> list[DBAnnouncement]:
+    """
+    根据 UUID 查找告示。
+    :param session: a db Session
+    :param announcement_uuid: str, 告示的 UUID
+    :return: 匹配的告示列表
+    """
+    return session.query(DBAnnouncement).filter_by(uuid=announcement_uuid).all()
+
+
+def add_announcement(
+    session: Session,
+    title: str,
+    content: str,
+    visible_group_names: list[str] | None = None,
+    commit: bool = False,
+) -> DBAnnouncement:
+    """
+    添加新告示到数据库。
+    :param session: a db Session
+    :param title: str, 告示标题
+    :param content: str, 告示内容
+    :param visible_group_names: list[str] | None, 可见用户组名列表；None 或空表示公开
+    :param commit: bool, 是否提交会话 (default: False)
+    :return: 创建的 DBAnnouncement 对象
+    :raise KeyError: 如果指定了不存在的用户组名
+    """
+    new_announcement = DBAnnouncement(title=title, content=content)
+    session.add(new_announcement)
+    session.flush()  # 确保 uuid 已生成，以便关联 visible_user_groups
+
+    if visible_group_names:
+        for group_name in visible_group_names:
+            ugs = find_user_group_by_name(session, group_name)
+            if not ugs:
+                raise KeyError(f"User group '{group_name}' not found")
+            new_announcement.visible_user_groups.append(ugs[0])
+
+    if commit:
+        session.commit()
+        session.refresh(new_announcement)
+
+    return new_announcement
+
+
+def delete_announcement(session: Session, announcement_uuid: str, commit: bool = False) -> bool:
+    """
+    删除告示。
+    :param session: a db Session
+    :param announcement_uuid: str, 要删除的告示 UUID
+    :param commit: bool, 是否提交会话 (default: False)
+    :return: bool, 删除成功返回 True
+    :raise KeyError: 如果告示不存在
+    """
+    announcements = find_announcement_by_uuid(session, announcement_uuid)
+    if not announcements:
+        raise KeyError(f"Announcement with UUID '{announcement_uuid}' not found")
+
+    announcement = announcements[0]
+    session.delete(announcement)
+
+    if commit:
+        session.commit()
+
+    return True
+
+
 def find_project_by_name(session: Session, project_name: str) -> list[DBProject]:
     """
     Found user sequence with project name, the name need be full-matched.
@@ -245,6 +312,37 @@ def find_user_by_uuid(session: Session, uuid: str) -> list[DBUser]:
     :return:
     """
     return session.query(DBUser).filter_by(uuid=uuid).all()
+
+
+def find_all_users(session: Session) -> list[DBUser]:
+    """
+    获取所有用户。
+    :param session: a db Session
+    :return: 所有用户列表
+    """
+    return session.query(DBUser).all()
+
+
+def delete_user(session: Session, user_uuid: str, commit: bool = True) -> None:
+    """
+    删除用户。会级联删除其 projects；需先移除 user_groups 关联并删除 password_auth/oauth_auth。
+    :param session: a db Session
+    :param user_uuid: str, 要删除的用户 UUID
+    :param commit: bool, 是否提交 (default: True)
+    :raise KeyError: 用户不存在
+    """
+    users = find_user_by_uuid(session, user_uuid)
+    if not users:
+        raise KeyError(f"User with UUID '{user_uuid}' not found")
+    user = users[0]
+    user.user_groups.clear()
+    if user.password_auth:
+        session.delete(user.password_auth)
+    if user.oauth_auth:
+        session.delete(user.oauth_auth)
+    session.delete(user)
+    if commit:
+        session.commit()
 
 
 def find_user_by_email_host(session: Session, email_host: str) -> list[DBUser]:

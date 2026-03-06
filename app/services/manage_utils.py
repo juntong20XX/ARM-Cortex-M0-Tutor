@@ -79,3 +79,21 @@ def check_user_permission_of_project(session: Session, user_uuid: str, project_u
     """
     user = db.find_user_by_uuid(session, user_uuid)[0]
     return project_uuid in (i.uuid for i in user.projects)
+
+
+def can_manage_project(session: Session, user: dict | None, project) -> bool:
+    """
+    检查用户是否有权管理项目（更新/删除）：项目属主或 administrator 组用户。
+    :param session: 数据库 Session
+    :param user: request.session 中的 user 字典，可为 None
+    :param project: 项目对象，需有 owner_id 属性
+    :return: 是否有管理权限
+    """
+    if not user or not isinstance(user, dict) or not user.get("uuid"):
+        return False
+    if getattr(project, "owner_id", None) == user["uuid"]:
+        return True
+    users = db.find_user_by_uuid(session, user["uuid"])
+    if not users:
+        return False
+    return any(ug.name == db.DEFAULT_GROUP_ADMINISTRATOR for ug in users[0].user_groups)

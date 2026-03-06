@@ -71,3 +71,20 @@ class BaseResponse(BaseModel):
     """
     success: bool
     msg: str
+
+
+class Announcement(BaseModel):
+    """
+    告示响应模型，与前端 Announcement 约定一致。
+    """
+    id: str
+    title: str
+    content: str
+    createdAt: str | None = None  # ISO 日期字符串，可选
+
+
+class AnnouncementsResponse(BaseModel):
+    """
+    告示列表响应模型。
+    """
+    items: list[Announcement]

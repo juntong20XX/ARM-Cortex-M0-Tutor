@@ -3,6 +3,7 @@ read setting and setup database session
 """
 from app.core.settings import load_config, AppSetting
 from . import models
+from .dbtools import ensure_default_groups
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
@@ -58,6 +59,8 @@ def get_db() -> Session:
     db = _SessionLocal()
     # 创建表
     models.DBBase.metadata.create_all(bind=_engine)
+    ensure_default_groups(db)
+    db.flush()  # 使 ensure_default_groups 添加的组对同 session 内后续查询可见
     return db
 
 

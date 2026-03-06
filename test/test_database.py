@@ -12,7 +12,8 @@ from app.database import (init_database, db_context,
                           add_user_to_user_group, remove_user_from_user_group,
                           get_user_managed_user_groups, get_user_group_users, find_users_by_user_group,
                           add_managed_user_to_user_group, remove_managed_user_from_user_group, get_user_group_managed_users,
-                          add_managed_user_group_to_user_group, remove_managed_user_group_from_user_group, get_user_group_managed_groups
+                          add_managed_user_group_to_user_group, remove_managed_user_group_from_user_group, get_user_group_managed_groups,
+                          DEFAULT_GROUP_EVERYONE, DEFAULT_GROUP_ADMINISTRATOR,
                           )
 from app.database.models import DBBase, DBUser, DBProject
 
@@ -221,7 +222,8 @@ class TestDatabaseModels(unittest.TestCase):
 
         with db_context() as session:
             user = find_user_by_username(session, "owner")[0]
-            # 删除用户
+            # 删除用户前先移除与用户组的关联（避免 FK 约束）
+            user.user_groups.clear()
             session.delete(user)
 
         with db_context() as session:
@@ -456,8 +458,10 @@ class TestGroupModels(unittest.TestCase):
 
         with db_context() as session:
             groups = find_all_user_groups(session)
-            self.assertEqual(len(groups), 3)
+            self.assertEqual(len(groups), 5)  # everyone + administrator + admin + users + developers
             group_names = [g.name for g in groups]
+            self.assertIn(DEFAULT_GROUP_EVERYONE, group_names)
+            self.assertIn(DEFAULT_GROUP_ADMINISTRATOR, group_names)
             self.assertIn("admin", group_names)
             self.assertIn("users", group_names)
             self.assertIn("developers", group_names)
@@ -513,6 +517,15 @@ class TestGroupModels(unittest.TestCase):
             with db_context() as session:
                 delete_user_group(session, name="nonexistent")
 
+    def test_delete_system_group_raises_error(self):
+        """测试删除系统组 everyone/administrator 会抛出错误"""
+        for group_name in (DEFAULT_GROUP_EVERYONE, DEFAULT_GROUP_ADMINISTRATOR):
+            with self.subTest(group=group_name):
+                with self.assertRaises(ValueError) as ctx:
+                    with db_context() as session:
+                        delete_user_group(session, name=group_name)
+                self.assertIn(group_name, str(ctx.exception))
+
     # ========== User-Group Relationship Tests ==========
 
     def test_add_user_to_group(self):
@@ -528,8 +541,12 @@ class TestGroupModels(unittest.TestCase):
 
         with db_context() as session:
             user = find_user_by_username(session, "testuser")[0]
-            self.assertEqual(len(user.user_groups), 1)
-            self.assertEqual(user.user_groups[0].name, "admin")
+            # 首个用户自动加入 everyone + administrator，再加 admin
+            self.assertGreaterEqual(len(user.user_groups), 3)
+            group_names = [g.name for g in user.user_groups]
+            self.assertIn(DEFAULT_GROUP_EVERYONE, group_names)
+            self.assertIn(DEFAULT_GROUP_ADMINISTRATOR, group_names)
+            self.assertIn("admin", group_names)
 
     def test_add_user_to_multiple_groups(self):
         """测试将用户添加到多个组"""
@@ -548,7 +565,8 @@ class TestGroupModels(unittest.TestCase):
 
         with db_context() as session:
             user = find_user_by_username(session, "testuser")[0]
-            self.assertEqual(len(user.user_groups), 3)
+            # 首个用户有 everyone + administrator，再加 admin + developers + users
+            self.assertGreaterEqual(len(user.user_groups), 5)
             group_names = [g.name for g in user.user_groups]
             self.assertIn("admin", group_names)
             self.assertIn("developers", group_names)
@@ -587,7 +605,23 @@ class TestGroupModels(unittest.TestCase):
 
         with db_context() as session:
             user = find_user_by_username(session, "testuser")[0]
-            self.assertEqual(len(user.user_groups), 0)
+            # 移除 admin 后仍保留 everyone + administrator（不可移除）
+            self.assertGreaterEqual(len(user.user_groups), 2)
+            group_names = [g.name for g in user.user_groups]
+            self.assertIn(DEFAULT_GROUP_EVERYONE, group_names)
+            self.assertIn(DEFAULT_GROUP_ADMINISTRATOR, group_names)
+
+    def test_remove_user_from_everyone_raises_error(self):
+        """测试从 everyone 组移除用户会抛出错误"""
+        with db_context() as session:
+            user = DBUser(username="testuser", email="test@example.com")
+            session.add(user)
+
+        with self.assertRaises(ValueError) as ctx:
+            with db_context() as session:
+                user = find_user_by_username(session, "testuser")[0]
+                remove_user_from_user_group(session, user.uuid, DEFAULT_GROUP_EVERYONE)
+        self.assertIn("everyone", str(ctx.exception))
 
     def test_remove_user_not_in_group_raises_error(self):
         """测试移除不在组中的用户会抛出错误"""
@@ -617,7 +651,11 @@ class TestGroupModels(unittest.TestCase):
         with db_context() as session:
             user = find_user_by_username(session, "testuser")[0]
             groups = get_user_managed_user_groups(session, user.uuid)
-            self.assertEqual(len(groups), 2)
+            # everyone + administrator + admin + developers
+            self.assertGreaterEqual(len(groups), 4)
+            group_names = [g.name for g in groups]
+            self.assertIn("admin", group_names)
+            self.assertIn("developers", group_names)
 
     def test_get_group_users(self):
         """测试获取组中的所有用户"""
@@ -678,7 +716,8 @@ class TestGroupModels(unittest.TestCase):
 
         with db_context() as session:
             user = find_user_by_username(session, "newuser")[0]
-            self.assertEqual(len(user.user_groups), 2)
+            # 首个用户有 everyone + administrator + admin + users
+            self.assertGreaterEqual(len(user.user_groups), 4)
             group_names = [g.name for g in user.user_groups]
             self.assertIn("admin", group_names)
             self.assertIn("users", group_names)
@@ -706,8 +745,9 @@ class TestGroupModels(unittest.TestCase):
         with db_context() as session:
             # 从用户端检查
             user = find_user_by_username(session, "testuser")[0]
-            self.assertEqual(len(user.user_groups), 1)
-            self.assertEqual(user.user_groups[0].name, "admin")
+            self.assertGreaterEqual(len(user.user_groups), 3)
+            group_names = [g.name for g in user.user_groups]
+            self.assertIn("admin", group_names)
 
             # 从组端检查
             group = find_user_group_by_name(session, "admin")[0]

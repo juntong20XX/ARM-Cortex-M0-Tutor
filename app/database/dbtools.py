@@ -1,7 +1,7 @@
 """
 
 """
-from .models import (DBUser, DBProject, OAuthProvider, PasswordAuth, OAuthAuthentication, DBUserGroup,
+from .models import (DBUser, DBProject, DBAnnouncement, OAuthProvider, PasswordAuth, OAuthAuthentication, DBUserGroup,
                      GroupMappingStrategy, GroupPermissionStrategy, UserLoginSource)
 from ..core.security import get_password_hash
 
@@ -12,6 +12,9 @@ import typing
 import uuid as uuid_module
 from datetime import datetime, UTC
 
+DEFAULT_GROUP_EVERYONE = "everyone"
+DEFAULT_GROUP_ADMINISTRATOR = "administrator"
+
 
 def find_all_projects(session: Session) -> list[DBProject]:
     """
@@ -20,6 +23,40 @@ def find_all_projects(session: Session) -> list[DBProject]:
     :return: 所有项目列表
     """
     return session.query(DBProject).all()
+
+
+def find_all_announcements(session: Session) -> list[DBAnnouncement]:
+    """
+    获取所有告示，按 created_at 倒序（内部用，不校验权限）。
+    :param session: a db Session
+    :return: 所有告示列表
+    """
+    return session.query(DBAnnouncement).order_by(DBAnnouncement.created_at.desc()).all()
+
+
+def find_visible_announcements(session: Session, user_uuid: str | None = None) -> list[DBAnnouncement]:
+    """
+    获取当前用户可见的告示，按 created_at 倒序。
+    - user_uuid 为 None（未登录）：仅返回公开告示（visible_user_groups 为空）
+    - user_uuid 有值：返回公开告示 + 用户所属组可见的告示
+    :param session: a db Session
+    :param user_uuid: 当前用户 UUID，未登录为 None
+    :return: 可见告示列表
+    """
+    all_rows = session.query(DBAnnouncement).order_by(DBAnnouncement.created_at.desc()).all()
+    if user_uuid is None:
+        return [r for r in all_rows if not r.visible_user_groups]
+    user = session.query(DBUser).filter_by(uuid=user_uuid).first()
+    if not user:
+        return [r for r in all_rows if not r.visible_user_groups]
+    user_group_uuids = {ug.uuid for ug in user.user_groups}
+    result = []
+    for r in all_rows:
+        if not r.visible_user_groups:
+            result.append(r)
+        elif any(ug.uuid in user_group_uuids for ug in r.visible_user_groups):
+            result.append(r)
+    return result
 
 
 def find_project_by_name(session: Session, project_name: str) -> list[DBProject]:
@@ -383,8 +420,19 @@ def add_user(session: Session,
         }
 
     # 处理 user_group
-    # -- 处理 OAuth 用户组
     user_group_objs: list[DBUserGroup] = []
+    # 每个用户必属于 everyone；首个用户自动加入 administrator
+    everyone_ugs = find_user_group_by_name(session, DEFAULT_GROUP_EVERYONE)
+    if not everyone_ugs:
+        raise KeyError(f"Default user group '{DEFAULT_GROUP_EVERYONE}' not found. Run ensure_default_groups first.")
+    user_group_objs.append(everyone_ugs[0])
+    is_first_user = session.query(DBUser).count() == 0
+    if is_first_user:
+        admin_ugs = find_user_group_by_name(session, DEFAULT_GROUP_ADMINISTRATOR)
+        if not admin_ugs:
+            raise KeyError(f"Default user group '{DEFAULT_GROUP_ADMINISTRATOR}' not found. Run ensure_default_groups first.")
+        user_group_objs.append(admin_ugs[0])
+    # -- 处理 OAuth 用户组
     if oauth_groups and provider:
         group_mapping = provider.group_mapping or {}
         unmapped_strategy = provider.unmapped_group_strategy
@@ -639,6 +687,37 @@ def update_provider(session: Session,
 
 # ==================== 用户组相关函数 ====================
 
+def ensure_default_groups(session: Session) -> None:
+    """
+    确保默认组 everyone 和 administrator 存在；
+    若数据库中已有用户，将未在 everyone 中的用户加入 everyone，
+    若 administrator 组内无用户，则将 created_at 最早的用户加入 administrator。
+    幂等，可多次调用。
+    """
+    # 创建 everyone 和 administrator 组（若不存在）
+    for name, desc in [
+        (DEFAULT_GROUP_EVERYONE, "All users belong to this group"),
+        (DEFAULT_GROUP_ADMINISTRATOR, "Administrators"),
+    ]:
+        if not find_user_group_by_name(session, name):
+            add_user_group(session, name=name, description=desc, commit=False)
+
+    # 存量迁移：所有用户加入 everyone
+    everyone_ugs = find_user_group_by_name(session, DEFAULT_GROUP_EVERYONE)
+    if everyone_ugs:
+        everyone_ug = everyone_ugs[0]
+        for user in session.query(DBUser).all():
+            if everyone_ug not in user.user_groups:
+                user.user_groups.append(everyone_ug)
+
+    # 存量迁移：若 administrator 无成员，将 created_at 最早的用户加入
+    admin_ugs = find_user_group_by_name(session, DEFAULT_GROUP_ADMINISTRATOR)
+    if admin_ugs and not admin_ugs[0].users:
+        first_user = session.query(DBUser).order_by(DBUser.created_at.asc()).first()
+        if first_user:
+            first_user.user_groups.append(admin_ugs[0])
+
+
 def find_user_group_by_name(session: Session, user_group_name: str) -> list[DBUserGroup]:
     """
     根据组名查找用户组，组名需要完全匹配。
@@ -743,6 +822,8 @@ def delete_user_group(session: Session, name: str, commit: bool = False) -> bool
     """
     删除用户组。
     """
+    if name in (DEFAULT_GROUP_EVERYONE, DEFAULT_GROUP_ADMINISTRATOR):
+        raise ValueError(f"Cannot delete system group '{name}'")
     ugs = find_user_group_by_name(session, name)
     if not ugs:
         raise KeyError(f"User group with name '{name}' not found")
@@ -784,6 +865,8 @@ def remove_user_from_user_group(session: Session,
     """
     将用户从指定用户组中移除。
     """
+    if user_group_name == DEFAULT_GROUP_EVERYONE:
+        raise ValueError("User cannot be removed from the 'everyone' group")
     user = session.query(DBUser).filter_by(uuid=user_uuid).first()
     if not user:
         raise KeyError(f"User with UUID '{user_uuid}' not found")

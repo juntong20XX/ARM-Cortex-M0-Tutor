@@ -69,6 +69,14 @@ user_group_managed_groups_association = Table(
     Column("managed_user_group_id", String(36), ForeignKey("user_groups.uuid"), primary_key=True),
 )
 
+# 告示-可见用户组 多对多关联表（空表示公开，非空表示仅指定组可见）
+announcement_user_group_association = Table(
+    "announcement_user_group_association",
+    DBBase.metadata,
+    Column("announcement_id", String(36), ForeignKey("announcements.uuid"), primary_key=True),
+    Column("user_group_id", String(36), ForeignKey("user_groups.uuid"), primary_key=True),
+)
+
 
 class DBUserGroup(DBBase):
     """
@@ -111,6 +119,13 @@ class DBUserGroup(DBBase):
         secondary=user_group_managed_groups_association,
         primaryjoin="DBUserGroup.uuid == user_group_managed_groups_association.c.manager_user_group_id",
         secondaryjoin="DBUserGroup.uuid == user_group_managed_groups_association.c.managed_user_group_id"
+    )
+
+    # 多对多关系: 该组可见的告示（告示的 visible_user_groups 非空时，仅指定组可见）
+    visible_announcements: Mapped[list["DBAnnouncement"]] = relationship(
+        "DBAnnouncement",
+        secondary=announcement_user_group_association,
+        back_populates="visible_user_groups",
     )
 
 
@@ -257,3 +272,26 @@ class DBProject(DBBase):
     )
 
     owner: Mapped["DBUser"] = relationship("DBUser", back_populates="projects")
+
+
+class DBAnnouncement(DBBase):
+    """
+    告示模型。
+    通过 visible_user_groups 多对多关联控制可见范围：空表示公开，非空表示仅指定用户组可见。
+    """
+    __tablename__ = "announcements"
+
+    uuid: Mapped[str] = mapped_column(String(36), primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.datetime.now(datetime.timezone.utc)
+    )
+
+    # 可见用户组：空表示公开；非空表示仅这些组的成员可见
+    visible_user_groups: Mapped[list["DBUserGroup"]] = relationship(
+        "DBUserGroup",
+        secondary=announcement_user_group_association,
+        back_populates="visible_announcements",
+    )

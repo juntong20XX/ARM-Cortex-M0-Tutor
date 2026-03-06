@@ -772,6 +772,9 @@ function createTraceDriver() {
     setOverlay(from: AnchorRef, to: AnchorRef, text: string) {
       const fromPos = resolveAnchor(from)
       const toPos = resolveAnchor(to)
+      // #region agent log
+      console.log('[DEBUG-10b1d7] resolveAnchor result', { fromKind: from.kind, fromIndex: (from as any).lineIndex, hasFrom: !!fromPos, hasTo: !!toPos, toReg: (to as any).reg, hypothesisId: 'B' })
+      // #endregion
       if (fromPos && toPos) {
         demoOverlay.value = { show: true, from: fromPos, to: toPos, text }
       } else {
@@ -1126,16 +1129,28 @@ async function fetchTrace(): Promise<TraceResponse | null> {
   try {
     const url = `/api/project/trace?uuid=${encodeURIComponent(props.projectUuid)}`
     const res = await fetch(url, { method: 'GET', credentials: 'include' })
+    // #region agent log
+    console.log('[DEBUG-10b1d7] fetchTrace response', { ok: res.ok, status: res.status, hypothesisId: 'A' })
+    // #endregion
     if (!res.ok) return null
     const data = await res.json()
+    // #region agent log
+    console.log('[DEBUG-10b1d7] fetchTrace data check', { adlVersion: (data as any)?.adlVersion, stepsIsArray: Array.isArray((data as any)?.steps), pass: ((data as any)?.adlVersion === ADL_VERSION && Array.isArray((data as any)?.steps)), hypothesisId: 'A' })
+    // #endregion
     if ((data as any)?.adlVersion === ADL_VERSION && Array.isArray((data as any)?.steps)) return data as TraceResponse
     return null
-  } catch {
+  } catch (e) {
+    // #region agent log
+    console.log('[DEBUG-10b1d7] fetchTrace catch', { err: String(e), hypothesisId: 'A' })
+    // #endregion
     return null
   }
 }
 
 async function runTraceAnimation(trace: TraceResponse) {
+  // #region agent log
+  console.log('[DEBUG-10b1d7] runTraceAnimation entered', { stepsLen: trace.steps?.length, hypothesisId: 'D' })
+  // #endregion
   isAnimating.value = true
   isPlaying.value = false
   isPaused.value = false
@@ -1153,6 +1168,11 @@ async function runTraceAnimation(trace: TraceResponse) {
   } else if (props.projectUuid) {
     executionCodeLines.value = null
   }
+  // #region agent log
+  if (props.projectUuid && trace.code?.length) {
+    console.log('[DEBUG-10b1d7] before stepTo project mode', { codeLen: code.value.split('\n').length, execLinesLen: executionCodeLines.value?.length, totalSteps: trace.steps?.length, hypothesisId: 'B' })
+  }
+  // #endregion
   drawArchitecture(0)
   demoOverlay.value.show = false
   const driver = createTraceDriver()
@@ -1188,6 +1208,9 @@ const runDemo = async () => {
 
   // Project mode: try backend trace first, fall back to handcrafted demo.
   const trace = await fetchTrace()
+  // #region agent log
+  console.log('[DEBUG-10b1d7] runDemo trace result', { hasTrace: !!trace, stepsLen: trace?.steps?.length, hypothesisId: 'A' })
+  // #endregion
   if (trace) {
     await runTraceAnimation(trace)
   } else {
@@ -1216,15 +1239,22 @@ async function playFromCurrent() {
     isPlaying.value = false
     isPaused.value = false
     isAnimating.value = false
-    // 播放结束后移除箭头等动画内容，恢复画布与寄存器高亮
-    demoOverlay.value.show = false
-    setCanvasFocusStep('None')
-    ;(registers.value as RegisterRow[]).forEach(r => { r.status = '' })
     if (controller.currentIndex === controller.totalSteps - 1 && controller.totalSteps > 0) {
       currentStepText.value = 'Execution Completed'
+      // 单步或最后一步：延迟清除 overlay/寄存器高亮，使用户能看清最终状态（否则 playForward 立即返回时会被立即清除）
+      const clearDelay = 1200
       setTimeout(() => {
+        if (traceController.value === controller) {
+          demoOverlay.value.show = false
+          setCanvasFocusStep('None')
+          ;(registers.value as RegisterRow[]).forEach(r => { r.status = '' })
+        }
         if (currentStepText.value === 'Execution Completed') currentStepText.value = ''
-      }, 2000)
+      }, clearDelay)
+    } else {
+      demoOverlay.value.show = false
+      setCanvasFocusStep('None')
+      ;(registers.value as RegisterRow[]).forEach(r => { r.status = '' })
     }
     currentStepIndex.value = controller.currentIndex
   }

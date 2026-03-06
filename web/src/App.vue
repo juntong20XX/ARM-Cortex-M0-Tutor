@@ -31,7 +31,7 @@ import {RouterLink, RouterView} from 'vue-router'
 .app-shell {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 2vh;
   flex: 1;
   min-height: 0;
 }
@@ -49,12 +49,13 @@ import {RouterLink, RouterView} from 'vue-router'
 }
 
 .app-header-inner {
-  max-width: 1280px;
+  width: 100%;
   margin: 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px;
+  padding: 1.2vh 1.5vw;
+  min-height: 5vh;
   border: 1px solid #e5e7eb;
   border-radius: 14px;
   background: #fff;

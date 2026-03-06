@@ -8,7 +8,8 @@ body {
 #app {
   max-width: 100%;
   margin: 0 auto;
-  padding: 32px 20px 40px;
+  /* 截图比例: 顶部到卡片 ~15-20%, 底部 ~5-10%, 左右各 ~10-12.5% */
+  padding: 12vh 10vw 6vh 10vw;
   font-weight: 400;
   height: 100vh;
   box-sizing: border-box;

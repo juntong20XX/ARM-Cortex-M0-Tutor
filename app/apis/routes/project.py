@@ -1,7 +1,7 @@
 """
 项目相关路由.
 
-XXX: 跳过权限认证.
+项目获取、更新、删除均需已登录且通过 can_manage_project 校验（项目属主或 administrator 组）。
 
 设计约定：
 - DBProject.source：仅保存原始汇编源代码文本；
@@ -76,19 +76,25 @@ def _asm_list_to_serializable(asm_list: list[ASMLine]) -> list[dict]:
 
 
 @router.get("/project/info/{project_uuid}", response_model=models.ProjectInfo)
-async def get_project_info(project_uuid: str):
+async def get_project_info(request: Request, project_uuid: str):
     """
-    获取项目信息
+    获取项目信息。需已登录且为项目属主或 administrator 组用户。
     :param project_uuid: 项目 UUID
     :return: 项目信息
-    :raise HTTPException: 项目未找到
+    :raise HTTPException: 项目未找到或无权限
     """
+    user = request.session.get("user")
+    if not user or not isinstance(user, dict):
+        raise HTTPException(status_code=401, detail="Please login first")
+
     with db.db_context() as session:
         projects = db.find_project_by_uuid(session, project_uuid)
         if not projects:
             raise HTTPException(status_code=404, detail=f"Project '{project_uuid}' not found")
 
         project = projects[0]
+        if not services.can_manage_project(session, user, project):
+            raise HTTPException(status_code=403, detail="You can only view your own project")
         return _setup_project_info(project)
 
 
@@ -241,11 +247,14 @@ async def delete_project_endpoint(request: Request, project_uuid: str):
 @router.get("/project/list", response_model=list[models.ProjectInfo])
 async def get_project_list(request: Request):
     """
-    获取可见的项目.
+    获取可见的项目。仅返回当前用户可管理的项目（属主或 administrator 组）。
     :return:
     """
-    user = request.session.get('user')
-    # TODO: check permission, just return all projects here
+    user = request.session.get("user")
+    if not user or not isinstance(user, dict):
+        raise HTTPException(status_code=401, detail="Please login first")
+
     with db.db_context() as session:
         all_projects = db.find_all_projects(session)
-        return [_setup_project_info(p, simplified=True) for p in all_projects]
+        visible = [p for p in all_projects if services.can_manage_project(session, user, p)]
+        return [_setup_project_info(p, simplified=True) for p in visible]

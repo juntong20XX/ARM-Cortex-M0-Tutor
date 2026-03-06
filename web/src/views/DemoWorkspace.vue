@@ -734,10 +734,10 @@ function applySnapshotToUI(snapshot: StepSnapshot) {
 function formatRegisterValue(reg: RegisterRow): string {
   const v = reg.value >>> 0
   if (reg.base === 'hex') {
-    return '0x' + (v & 0xF).toString(16).toUpperCase()
+    return '0x' + v.toString(16).toUpperCase()
   }
   if (reg.base === 'bin') {
-    return '0b' + (v & 1)
+    return '0b' + v.toString(2)
   }
   return String(v)
 }

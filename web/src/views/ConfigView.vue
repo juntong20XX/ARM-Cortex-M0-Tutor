@@ -3,7 +3,7 @@
     <p class="eyebrow">ARM Cortex-M0 Tutorial</p>
     <h1 class="title">Config</h1>
     <p class="lead">
-      User information and configuration. Administrators can manage users and announcements.
+      User information and configuration. Administrators can manage users, announcements, and user groups.
     </p>
 
     <!-- Loading / Error -->
@@ -86,6 +86,78 @@
           </el-form-item>
         </el-form>
 
+        <!-- Admin: User Groups -->
+        <h2 class="section-title">Manage User Groups</h2>
+        <el-form :model="groupForm" class="group-form" label-position="top">
+          <el-form-item v-if="!editingGroupName" label="Create group">
+            <div class="group-form-row">
+              <el-input
+                v-model="groupForm.name"
+                placeholder="Group name"
+                style="max-width: 200px"
+              />
+              <el-input
+                v-model="groupForm.description"
+                placeholder="Description (optional)"
+                style="max-width: 280px"
+              />
+              <el-button type="primary" :loading="groupLoading" @click="handleCreateGroup">
+                Create
+              </el-button>
+            </div>
+          </el-form-item>
+          <el-form-item v-else label="Edit group">
+            <div class="group-form-row">
+              <el-input
+                v-model="groupForm.name"
+                placeholder="New name"
+                style="max-width: 200px"
+              />
+              <el-input
+                v-model="groupForm.description"
+                placeholder="Description (optional)"
+                style="max-width: 280px"
+              />
+              <el-button type="primary" :loading="groupLoading" @click="handleUpdateGroup">
+                Save
+              </el-button>
+              <el-button @click="cancelEditGroup">Cancel</el-button>
+            </div>
+          </el-form-item>
+        </el-form>
+        <div v-if="groupsLoading" class="state state-loading">Loading user groups…</div>
+        <el-table v-else :data="groupsList" stripe border class="group-table">
+          <el-table-column prop="name" label="Name" min-width="140" />
+          <el-table-column prop="description" label="Description" min-width="200">
+            <template #default="{ row }">
+              {{ row.description || '—' }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="memberCount" label="Members" width="100" />
+          <el-table-column label="Actions" width="140">
+            <template #default="{ row }">
+              <el-button
+                type="primary"
+                size="small"
+                link
+                :disabled="isSystemGroup(row.name)"
+                @click="openEditGroup(row)"
+              >
+                Edit
+              </el-button>
+              <el-button
+                type="danger"
+                size="small"
+                link
+                :disabled="isSystemGroup(row.name)"
+                @click="handleDeleteGroup(row.name)"
+              >
+                Delete
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
         <!-- Admin: Announcements List -->
         <h2 class="section-title">Manage Announcements</h2>
         <div v-if="announcementsLoading" class="state state-loading">Loading announcements…</div>
@@ -120,6 +192,13 @@ import {
   deleteAnnouncement,
   type Announcement,
 } from '../api/announcements'
+import {
+  fetchUserGroups,
+  createUserGroup,
+  updateUserGroup,
+  deleteUserGroup,
+  type UserGroup,
+} from '../api/userGroups'
 
 const { userUuid } = useSession()
 const loading = ref(true)
@@ -130,6 +209,11 @@ const announcementsList = ref<Announcement[]>([])
 const announcementsLoading = ref(false)
 const publishLoading = ref(false)
 const announceForm = ref({ title: '', content: '' })
+const groupsList = ref<UserGroup[]>([])
+const groupsLoading = ref(false)
+const groupLoading = ref(false)
+const editingGroupName = ref<string | null>(null)
+const groupForm = ref({ name: '', description: '' })
 
 async function loadUserData() {
   if (!userUuid.value) {
@@ -167,9 +251,97 @@ async function loadAnnouncements() {
   }
 }
 
+async function loadUserGroups() {
+  if (!isAdmin.value) return
+  groupsLoading.value = true
+  try {
+    const res = await fetchUserGroups()
+    groupsList.value = res.items
+  } catch {
+    groupsList.value = []
+  } finally {
+    groupsLoading.value = false
+  }
+}
+
 async function load() {
   await loadUserData()
   await loadAnnouncements()
+  await loadUserGroups()
+}
+
+const SYSTEM_GROUPS = ['everyone', 'administrator']
+function isSystemGroup(name: string) {
+  return SYSTEM_GROUPS.includes(name)
+}
+
+function openEditGroup(group: UserGroup) {
+  editingGroupName.value = group.name
+  groupForm.value = { name: group.name, description: group.description || '' }
+}
+
+function cancelEditGroup() {
+  editingGroupName.value = null
+  groupForm.value = { name: '', description: '' }
+}
+
+async function handleCreateGroup() {
+  const { name, description } = groupForm.value
+  if (!name.trim()) {
+    ElMessage.warning('Please enter a group name')
+    return
+  }
+  groupLoading.value = true
+  try {
+    await createUserGroup({ name: name.trim(), description: description.trim() || null })
+    ElMessage.success({ message: 'Group created successfully', showClose: true })
+    groupForm.value = { name: '', description: '' }
+    await loadUserGroups()
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Group creation failed'
+    ElMessage.error({ message: msg, showClose: true })
+  } finally {
+    groupLoading.value = false
+  }
+}
+
+async function handleUpdateGroup() {
+  const orig = editingGroupName.value
+  if (!orig) return
+  const { name, description } = groupForm.value
+  groupLoading.value = true
+  try {
+    await updateUserGroup(orig, {
+      newName: name.trim() || orig,
+      description: description.trim() || null,
+    })
+    ElMessage.success('User group updated')
+    cancelEditGroup()
+    await loadUserGroups()
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : 'Update failed')
+  } finally {
+    groupLoading.value = false
+  }
+}
+
+async function handleDeleteGroup(name: string) {
+  if (isSystemGroup(name)) return
+  try {
+    await ElMessageBox.confirm(
+      `Delete user group "${name}"? Users in this group will be removed from it.`,
+      'Confirm Delete',
+      { type: 'warning' }
+    )
+    await deleteUserGroup(name)
+    ElMessage.success('User group deleted')
+    if (editingGroupName.value === name) cancelEditGroup()
+    await loadUserGroups()
+  } catch (e) {
+    if (e !== 'cancel') {
+      ElMessage.error(e instanceof Error ? e.message : 'Delete failed')
+    }
+  }
 }
 
 async function handleDeleteUser(uuid: string) {
@@ -310,6 +482,22 @@ onMounted(load)
 
 .announce-form {
   max-width: 560px;
+}
+
+.group-form {
+  max-width: 640px;
+}
+
+.group-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.group-table {
+  margin-top: 8px;
+  max-width: 640px;
 }
 
 .announcement-list {

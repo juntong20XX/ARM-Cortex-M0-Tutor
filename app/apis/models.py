@@ -105,3 +105,28 @@ class AnnouncementsResponse(BaseModel):
     告示列表响应模型。
     """
     items: list[Announcement]
+
+
+class UserGroupItem(BaseModel):
+    """用户组单项，用于列表展示。"""
+    uuid: str
+    name: str
+    description: str | None
+    memberCount: int
+
+
+class UserGroupsListResponse(BaseModel):
+    """用户组列表响应。"""
+    items: list[UserGroupItem]
+
+
+class UserGroupCreateRequest(BaseModel):
+    """创建用户组请求。"""
+    name: str
+    description: str | None = None
+
+
+class UserGroupUpdateRequest(BaseModel):
+    """更新用户组请求，字段均为可选。"""
+    newName: str | None = None
+    description: str | None = None

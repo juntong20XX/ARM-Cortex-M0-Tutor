@@ -40,6 +40,8 @@ Backend-generated trace + animation events; frontend interprets and drives code 
 | `PC` | `{ kind, pc: string }` | Resolve to code line by PC. |
 | `RegisterRow` | `{ kind, reg: "R0" }` | Right-panel register row. |
 | `CanvasComponent` | `{ kind, id: "CU" \| "REG" \| "ALU" }` | Canvas box. |
+| `CodeFragment` | `{ kind, lineIndex, fragment: string }` | Specified text fragment within a code line (for highlight/anim start). |
+| `FloatingToken` | `{ kind, tokenId: string }` | Token animated to code box center; used as arrow endpoints. |
 
 ---
 
@@ -50,9 +52,12 @@ Backend-generated trace + animation events; frontend interprets and drives code 
 | `SetActiveLine` | `by: "pc" \| "index", value` | Set active code line. |
 | `FocusCanvas` | `target: "CU" \| "REG" \| "ALU" \| "None"` | Highlight canvas component. |
 | `MarkRegister` | `reg, mode: "read" \| "write" \| "clear"` | Mark register row. |
-| `OverlayArrow` | `from: AnchorRef, to: AnchorRef, text: string` | Draw arrow with label. |
+| `OverlayArrow` | `from: AnchorRef, to: AnchorRef, text: string` | Draw arrow with label. `from`/`to` may be `FloatingToken`. |
 | `AnnotateBus` | `text, at: "aluInputA" \| "aluInputB" \| "writeback"` | Data flow label on bus. |
 | `Wait` | `ms: number` | Optional pause (frontend may use global speed). |
+| `HighlightCodeFragment` | `lineIndex`, `fragments: Array<{ text, start, end }>` | Highlight character ranges in code line. |
+| `AnimateFragmentMove` | `lineIndex`, `fragments: Array<{ text, start, end, id? }>`, `duration?`, `target?: "codeBoxCenter"` | Animate fragments from source to center, scaling; `id` used for `FloatingToken`. |
+| `ClearFragmentHighlight` | (none) | Clear code fragment highlights (optional, may be implicit before next event). |
 
 ---
 
@@ -105,6 +110,43 @@ Backend-generated trace + animation events; frontend interprets and drives code 
       ]
     }
   ]
+}
+```
+
+---
+
+## Example: MOVS operand highlight and move (new events)
+
+For `MOVS r1, #3`, fragments `r1` and `#3` can be highlighted, animated to code box center, then linked by arrow:
+
+```json
+{
+  "type": "HighlightCodeFragment",
+  "lineIndex": 2,
+  "fragments": [
+    { "text": "r1", "start": 6, "end": 8, "id": "dest" },
+    { "text": "#3", "start": 11, "end": 13, "id": "src" }
+  ]
+},
+{
+  "type": "Wait",
+  "ms": 300
+},
+{
+  "type": "AnimateFragmentMove",
+  "lineIndex": 2,
+  "fragments": [
+    { "text": "r1", "start": 6, "end": 8, "id": "dest" },
+    { "text": "#3", "start": 11, "end": 13, "id": "src" }
+  ],
+  "duration": 600,
+  "target": "codeBoxCenter"
+},
+{
+  "type": "OverlayArrow",
+  "from": { "kind": "FloatingToken", "tokenId": "src" },
+  "to": { "kind": "FloatingToken", "tokenId": "dest" },
+  "text": "#3 → R1"
 }
 ```
 

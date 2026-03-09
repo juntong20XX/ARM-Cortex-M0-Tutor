@@ -11,8 +11,27 @@
         { "$ref": "#/definitions/CodeLineAddrAnchor" },
         { "$ref": "#/definitions/PCAnchor" },
         { "$ref": "#/definitions/RegisterRowAnchor" },
-        { "$ref": "#/definitions/CanvasComponentAnchor" }
+        { "$ref": "#/definitions/CanvasComponentAnchor" },
+        { "$ref": "#/definitions/CodeFragmentAnchor" },
+        { "$ref": "#/definitions/FloatingTokenAnchor" }
       ]
+    },
+    "CodeFragmentAnchor": {
+      "type": "object",
+      "required": ["kind", "lineIndex", "fragment"],
+      "properties": {
+        "kind": { "const": "CodeFragment" },
+        "lineIndex": { "type": "integer", "minimum": 0 },
+        "fragment": { "type": "string" }
+      }
+    },
+    "FloatingTokenAnchor": {
+      "type": "object",
+      "required": ["kind", "tokenId"],
+      "properties": {
+        "kind": { "const": "FloatingToken" },
+        "tokenId": { "type": "string" }
+      }
     },
     "CodeLineAddrAnchor": {
       "type": "object",
@@ -47,6 +66,16 @@
       }
     },
 
+    "FragmentSpan": {
+      "type": "object",
+      "required": ["text", "start", "end"],
+      "properties": {
+        "text": { "type": "string" },
+        "start": { "type": "integer", "minimum": 0 },
+        "end": { "type": "integer", "minimum": 0 },
+        "id": { "type": "string" }
+      }
+    },
     "ADLEvent": {
       "oneOf": [
         { "$ref": "#/definitions/SetActiveLineEvent" },
@@ -54,8 +83,44 @@
         { "$ref": "#/definitions/MarkRegisterEvent" },
         { "$ref": "#/definitions/OverlayArrowEvent" },
         { "$ref": "#/definitions/AnnotateBusEvent" },
-        { "$ref": "#/definitions/WaitEvent" }
+        { "$ref": "#/definitions/WaitEvent" },
+        { "$ref": "#/definitions/HighlightCodeFragmentEvent" },
+        { "$ref": "#/definitions/AnimateFragmentMoveEvent" },
+        { "$ref": "#/definitions/ClearFragmentHighlightEvent" }
       ]
+    },
+    "HighlightCodeFragmentEvent": {
+      "type": "object",
+      "required": ["type", "lineIndex", "fragments"],
+      "properties": {
+        "type": { "const": "HighlightCodeFragment" },
+        "lineIndex": { "type": "integer", "minimum": 0 },
+        "fragments": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/FragmentSpan" }
+        }
+      }
+    },
+    "AnimateFragmentMoveEvent": {
+      "type": "object",
+      "required": ["type", "lineIndex", "fragments"],
+      "properties": {
+        "type": { "const": "AnimateFragmentMove" },
+        "lineIndex": { "type": "integer", "minimum": 0 },
+        "fragments": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/FragmentSpan" }
+        },
+        "duration": { "type": "integer", "minimum": 0 },
+        "target": { "enum": ["codeBoxCenter"] }
+      }
+    },
+    "ClearFragmentHighlightEvent": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "const": "ClearFragmentHighlight" }
+      }
     },
     "SetActiveLineEvent": {
       "type": "object",

@@ -87,6 +87,37 @@ class TestAsmStepToTraceStep(unittest.TestCase):
         with self.assertRaises(TypeError):
             asm_step_to_trace_step({"addr_pc": "0x0"})
 
+    def test_mov_step_contains_highlight_and_animate_fragment_events(self):
+        """MOVS r1, #3: events include HighlightCodeFragment, AnimateFragmentMove, OverlayArrow with FloatingToken."""
+        asm = ASMLine(
+            "mov", "s",
+            ASMParam("r1", "r"),
+            ASMParam("#3", "i"),
+            ASMParam("", ""),
+        )
+        disassemble = (("0x00000058", asm),)
+        step = ASMStep(
+            line_counter=1,
+            addr_pc="0x00000058",
+            disassemble=disassemble,
+            register_values=_make_register_values(r15="0x58"),
+            memory_delta=None,
+        )
+        t = asm_step_to_trace_step(step)
+        types = [e.type for e in t.events]
+        self.assertIn("HighlightCodeFragment", types)
+        self.assertIn("AnimateFragmentMove", types)
+        hcf = next(e for e in t.events if e.type == "HighlightCodeFragment")
+        self.assertEqual(hcf.lineIndex, 1)
+        self.assertEqual(len(hcf.fragments), 2)
+        self.assertEqual(hcf.fragments[0].text, "r1")
+        self.assertEqual(hcf.fragments[0].id, "dest")
+        self.assertEqual(hcf.fragments[1].text, "#3")
+        self.assertEqual(hcf.fragments[1].id, "src")
+        arrow = next(e for e in t.events if e.type == "OverlayArrow" and e.to.kind == "FloatingToken")
+        self.assertEqual(arrow.from_.kind, "FloatingToken")
+        self.assertEqual(arrow.to.kind, "FloatingToken")
+
 
 class TestAsmStepsToTraceResponse(unittest.TestCase):
     """多步转换 asm_steps_to_trace_response."""

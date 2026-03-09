@@ -82,8 +82,8 @@
           地址暂时不可用
         </el-tag>
       </div>
-      <div class="editor-wrapper" :style="{ height: editorHeight + 'px' }">
-        <div class="code-lines">
+      <div class="editor-wrapper" ref="editorWrapperRef" :style="{ height: editorHeight + 'px' }">
+        <div class="code-lines" ref="codeLinesRef">
           <div
             v-for="(line, index) in codeLines"
             :key="index"
@@ -92,7 +92,12 @@
             :class="{ 'active-line': index === activeLineIndex }"
           >
             <span class="line-number">{{ index + 1 }}</span>
-            <label class="line-content">{{ line || '\u00A0' }}</label>
+            <label class="line-content">
+              <template v-for="(seg, si) in getLineSegments(line, index)" :key="si">
+                <span v-if="seg.highlight" class="fragment-highlight" :data-fragment-id="seg.id">{{ seg.text }}</span>
+                <span v-else>{{ seg.text }}</span>
+              </template>
+            </label>
             <span class="line-addr">{{ codeLineAddresses[index] }}</span>
           </div>
         </div>
@@ -260,8 +265,30 @@
         </marker>
       </defs>
       <path :d="arrowPath" stroke="#F56C6C" stroke-width="3" fill="none" marker-end="url(#arrowhead)" stroke-dasharray="10 5" class="animated-path"/>
-      <text :x="(demoOverlay.from.x + demoOverlay.to.x)/2" :y="(demoOverlay.from.y + demoOverlay.to.y)/2 - 10" fill="#F56C6C" font-weight="bold" text-anchor="middle" class="arrow-text">{{ demoOverlay.text }}</text>
+      <g class="arrow-label">
+        <rect :x="arrowLabelRect.x" :y="arrowTextPos.y - 10" :width="arrowLabelRect.width" height="20" rx="4" fill="rgba(30,30,30,0.92)" stroke="#F56C6C" stroke-width="1"/>
+        <text :x="arrowTextPos.x" :y="arrowTextPos.y" fill="#F56C6C" font-weight="bold" text-anchor="middle" dominant-baseline="middle" font-size="12">{{ demoOverlay.text }}</text>
+      </g>
     </svg>
+
+    <!-- Floating tokens (after AnimateFragmentMove) -->
+    <div class="floating-tokens-layer">
+      <div
+        v-for="tk in floatingTokens"
+        :key="tk.id"
+        class="floating-token"
+        :class="{ 'floating-token-animating': tk.animating }"
+        :data-token-id="tk.id"
+        :style="{
+          left: tk.x + 'px',
+          top: tk.y + 'px',
+          transform: `translate(-50%, -50%) scale(${tk.scale})`,
+          transition: tk.animating ? `all ${tk.duration}ms ease-out` : 'none'
+        }"
+      >
+        {{ tk.text }}
+      </div>
+    </div>
   </div>
 </template>
 
@@ -271,7 +298,7 @@ import { VideoPlay, View, Edit } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { createTraceController, type TraceController } from '@/animation/tracePlayer'
 import { ADL_VERSION } from '@/animation/adl-types'
-import type { TraceResponse, StepSnapshot, AnchorRef, CodeLine } from '@/animation/adl-types'
+import type { TraceResponse, StepSnapshot, AnchorRef, CodeLine, FragmentSpan } from '@/animation/adl-types'
 
 const props = withDefaults(
   defineProps<{
@@ -435,6 +462,37 @@ const setLineRef = (el, index) => {
   if (el) {
     lineRefs.value[index] = el
   }
+}
+const editorWrapperRef = ref<HTMLElement | null>(null)
+const codeLinesRef = ref<HTMLElement | null>(null)
+
+// ADL fragment highlight & float state
+interface FragmentHighlightSpan { start: number; end: number; id?: string }
+const fragmentHighlights = ref<Map<number, FragmentHighlightSpan[]>>(new Map())
+const floatingTokenPositions = ref<Map<string, { x: number; y: number }>>(new Map())
+interface FloatingTokenItem { id: string; text: string; x: number; y: number; scale: number; animating: boolean; duration?: number }
+const floatingTokens = ref<FloatingTokenItem[]>([])
+
+function getLineSegments(line: string, lineIndex: number): Array<{ text: string; highlight: boolean; id?: string }> {
+  const text = line || '\u00A0'
+  const spans = fragmentHighlights.value.get(lineIndex)
+  if (!spans || spans.length === 0) {
+    return [{ text, highlight: false }]
+  }
+  const sorted = [...spans].sort((a, b) => a.start - b.start)
+  const out: Array<{ text: string; highlight: boolean; id?: string }> = []
+  let pos = 0
+  for (const s of sorted) {
+    const start = Math.max(pos, s.start)
+    const end = Math.min(s.end, text.length)
+    if (start < end) {
+      if (start > pos) out.push({ text: text.slice(pos, start), highlight: false })
+      out.push({ text: text.slice(start, end), highlight: true, id: s.id })
+      pos = end
+    }
+  }
+  if (pos < text.length) out.push({ text: text.slice(pos), highlight: false })
+  return out
 }
 
 type RegisterDisplayBase = 'dec' | 'hex' | 'bin'
@@ -638,10 +696,31 @@ const arrowPath = computed(() => {
   // Create a curved path
   const dx = to.x - from.x
   const dy = to.y - from.y
-  const controlX = from.x + dx * 0.5 // Adjust curve control point
+  const controlX = from.x + dx * 0.5
   const controlY = from.y + dy * 0.1
-  
   return `M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}`
+})
+
+// Arrow text position: offset perpendicular to avoid overlapping tokens
+const arrowTextPos = computed(() => {
+  const { from, to } = demoOverlay.value
+  const midX = (from.x + to.x) / 2
+  const midY = (from.y + to.y) / 2
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  const len = Math.sqrt(dx * dx + dy * dy) || 1
+  const perpX = -dy / len
+  const perpY = dx / len
+  const offset = 22
+  return {
+    x: midX + perpX * offset,
+    y: midY + perpY * offset
+  }
+})
+
+const arrowLabelRect = computed(() => {
+  const w = Math.max(80, demoOverlay.value.text.length * 7)
+  return { width: w, x: arrowTextPos.value.x - w / 2 }
 })
 
 // Architecture Layout Constants (Scaled Up)
@@ -696,6 +775,22 @@ function resolveAnchor(anchor: AnchorRef): { x: number; y: number } | null {
     const idx = codeLineAddresses.value.findIndex(addr => (addr || '').toLowerCase() === anchor.pc.toLowerCase())
     if (idx >= 0) return resolveAnchor({ kind: 'CodeLineAddr', lineIndex: idx })
     return null
+  }
+  if (anchor.kind === 'CodeFragment') {
+    const lineEl = (lineRefs.value as any)[anchor.lineIndex]
+    if (!lineEl) return null
+    const spanEl = lineEl.querySelector(`.fragment-highlight[data-fragment-id="${anchor.fragment}"]`) as HTMLElement | null
+    if (!spanEl) return null
+    const r = spanEl.getBoundingClientRect()
+    return {
+      x: r.left - containerRect.left + r.width / 2,
+      y: r.top - containerRect.top + r.height / 2
+    }
+  }
+  if (anchor.kind === 'FloatingToken') {
+    const pos = floatingTokenPositions.value.get(anchor.tokenId)
+    if (!pos) return null
+    return pos
   }
   return null
 }
@@ -769,12 +864,17 @@ function createTraceDriver() {
       if (r) r.status = mode === 'clear' ? '' : mode
     },
     setOverlay(from: AnchorRef, to: AnchorRef, text: string) {
-      const fromPos = resolveAnchor(from)
-      const toPos = resolveAnchor(to)
-      // #region agent log
-      console.log('[DEBUG-10b1d7] resolveAnchor result', { fromKind: from.kind, fromIndex: (from as any).lineIndex, hasFrom: !!fromPos, hasTo: !!toPos, toReg: (to as any).reg, hypothesisId: 'B' })
-      // #endregion
+      let fromPos = resolveAnchor(from)
+      let toPos = resolveAnchor(to)
       if (fromPos && toPos) {
+        if (from.kind === 'FloatingToken' && to.kind === 'FloatingToken') {
+          const dx = toPos.x - fromPos.x
+          const dy = toPos.y - fromPos.y
+          const len = Math.sqrt(dx * dx + dy * dy) || 1
+          const offset = 18
+          fromPos = { x: fromPos.x + (dx / len) * offset, y: fromPos.y + (dy / len) * offset }
+          toPos = { x: toPos.x - (dx / len) * offset, y: toPos.y - (dy / len) * offset }
+        }
         demoOverlay.value = { show: true, from: fromPos, to: toPos, text }
       } else {
         demoOverlay.value.show = false
@@ -782,6 +882,86 @@ function createTraceDriver() {
     },
     wait(ms: number): Promise<void> {
       return new Promise(resolve => setTimeout(resolve, ms))
+    },
+    highlightCodeFragments(lineIndex: number, fragments: FragmentSpan[]) {
+      const spans: FragmentHighlightSpan[] = fragments.map(f => ({ start: f.start, end: f.end, id: f.id }))
+      const next = new Map(fragmentHighlights.value)
+      next.set(lineIndex, spans)
+      fragmentHighlights.value = next
+    },
+    clearFragmentHighlight() {
+      fragmentHighlights.value = new Map()
+    },
+    async animateFragmentMove(
+      lineIndex: number,
+      fragments: FragmentSpan[],
+      options?: { duration?: number; target?: 'codeBoxCenter' }
+    ): Promise<void> {
+      const containerEl = demoContainerRef.value
+      const editorEl = editorWrapperRef.value
+      if (!containerEl || !editorEl) return
+      const containerRect = containerEl.getBoundingClientRect()
+      const editorRect = editorEl.getBoundingClientRect()
+      const centerX = editorRect.left - containerRect.left + editorRect.width / 2
+      const centerY = editorRect.top - containerRect.top + editorRect.height / 2
+      const duration = options?.duration ?? 600
+
+      const lineEl = (lineRefs.value as any)[lineIndex] as HTMLElement | null
+      if (!lineEl) return
+
+      const spacing = 120
+      const n = fragments.length
+      const startX = centerX - ((n - 1) * spacing) / 2
+
+      const tokens: FloatingTokenItem[] = []
+      for (let i = 0; i < fragments.length; i++) {
+        const f = fragments[i]
+        const spanEl = lineEl.querySelector(`.fragment-highlight[data-fragment-id="${f.id}"]`) as HTMLElement | null
+        let x: number, y: number
+        if (spanEl) {
+          const r = spanEl.getBoundingClientRect()
+          x = r.left - containerRect.left + r.width / 2
+          y = r.top - containerRect.top + r.height / 2
+        } else {
+          x = centerX
+          y = centerY
+        }
+        tokens.push({
+          id: f.id ?? `f${i}`,
+          text: f.text,
+          x,
+          y,
+          scale: 1,
+          animating: true,
+          duration
+        })
+      }
+      floatingTokens.value = tokens
+      await nextTick()
+
+      const positions = new Map<string, { x: number; y: number }>()
+      for (let i = 0; i < fragments.length; i++) {
+        const f = fragments[i]
+        const tid = f.id ?? `f${i}`
+        positions.set(tid, { x: startX + i * spacing, y: centerY })
+      }
+      floatingTokenPositions.value = positions
+
+      floatingTokens.value = tokens.map((t, i) => ({
+        ...t,
+        x: startX + i * spacing,
+        y: centerY,
+        scale: 1.8,
+        animating: true,
+        duration
+      }))
+
+      await new Promise<void>(resolve => setTimeout(resolve, duration))
+    },
+    resetFragmentState() {
+      fragmentHighlights.value = new Map()
+      floatingTokenPositions.value = new Map()
+      floatingTokens.value = []
     }
   }
 }
@@ -1019,6 +1199,19 @@ const updateOverlay = (targetType: 'CANVAS' | 'REGISTER' | '', targetValue: stri
   }
 }
 
+function clearAnimationOverlayState() {
+  demoOverlay.value.show = false
+  fragmentHighlights.value = new Map()
+  floatingTokenPositions.value = new Map()
+  floatingTokens.value = []
+  const f = currentTrace.value?.initialState?.flags
+  if (f) {
+    flags.value = { N: !!(f.N), Z: !!(f.Z), C: !!(f.C), V: !!(f.V) }
+  } else {
+    flags.value = { N: false, Z: false, C: false, V: false }
+  }
+}
+
 function applyLeftPanelRatioHeights() {
   const el = leftPanelRef.value
   if (!el) return
@@ -1114,6 +1307,10 @@ const MOCK_TRACE = {
         { type: 'FocusCanvas', target: 'REG' },
         { type: 'OverlayArrow', from: { kind: 'CodeLineAddr', lineIndex: 2 }, to: { kind: 'RegisterRow', reg: 'R1' }, text: 'MOVS r1, #5' },
         { type: 'MarkRegister', reg: 'R1', mode: 'write' },
+        { type: 'HighlightCodeFragment', lineIndex: 2, fragments: [{ text: 'r1', start: 5, end: 7, id: 'dest' }, { text: '#5', start: 9, end: 11, id: 'src' }] },
+        { type: 'Wait', ms: 300 },
+        { type: 'AnimateFragmentMove', lineIndex: 2, fragments: [{ text: 'r1', start: 5, end: 7, id: 'dest' }, { text: '#5', start: 9, end: 11, id: 'src' }], duration: 600, target: 'codeBoxCenter' },
+        { type: 'OverlayArrow', from: { kind: 'FloatingToken', tokenId: 'src' }, to: { kind: 'FloatingToken', tokenId: 'dest' }, text: '#5 → R1' },
         { type: 'Wait', ms: 1000 }
       ]
     }
@@ -1173,7 +1370,7 @@ async function runTraceAnimation(trace: TraceResponse) {
   }
   // #endregion
   drawArchitecture(0)
-  demoOverlay.value.show = false
+  clearAnimationOverlayState()
   const driver = createTraceDriver()
   const controller = createTraceController(trace, driver, { speed: playSpeed.value })
   traceController.value = controller
@@ -1240,18 +1437,18 @@ async function playFromCurrent() {
     isAnimating.value = false
     if (controller.currentIndex === controller.totalSteps - 1 && controller.totalSteps > 0) {
       currentStepText.value = 'Execution Completed'
-      // 单步或最后一步：延迟清除 overlay/寄存器高亮，使用户能看清最终状态（否则 playForward 立即返回时会被立即清除）
+      // 单步或最后一步：延迟清除 overlay/浮动 token/寄存器高亮，使用户能看清最终状态
       const clearDelay = 1200
       setTimeout(() => {
         if (traceController.value === controller) {
-          demoOverlay.value.show = false
+          clearAnimationOverlayState()
           setCanvasFocusStep('None')
           ;(registers.value as RegisterRow[]).forEach(r => { r.status = '' })
         }
         if (currentStepText.value === 'Execution Completed') currentStepText.value = ''
       }, clearDelay)
     } else {
-      demoOverlay.value.show = false
+      clearAnimationOverlayState()
       setCanvasFocusStep('None')
       ;(registers.value as RegisterRow[]).forEach(r => { r.status = '' })
     }
@@ -1472,9 +1669,9 @@ async function runDemoFallback() {
   }
 }
 
-.arrow-text {
-  font-family: sans-serif;
-  text-shadow: 0 0 3px white;
+.arrow-label text {
+  font-family: 'Fira Code', 'Consolas', monospace;
+  pointer-events: none;
 }
 
 .toolbar {
@@ -1657,6 +1854,36 @@ canvas {
   cursor: default;
   flex: 1;
   min-width: 0;
+}
+
+.line-content .fragment-highlight {
+  background: rgba(230, 163, 60, 0.5);
+  color: #e5c07b;
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+
+.floating-tokens-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 110;
+}
+
+.floating-token {
+  position: absolute;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 14px;
+  font-weight: bold;
+  color: #e5c07b;
+  background: rgba(45, 45, 45, 0.95);
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
 .line-addr {

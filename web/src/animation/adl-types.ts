@@ -25,11 +25,20 @@ export interface StepSnapshot {
   memoryDelta?: Record<string, number>
 }
 
+export interface FragmentSpan {
+  text: string
+  start: number
+  end: number
+  id?: string
+}
+
 export type AnchorRef =
   | { kind: 'CodeLineAddr'; lineIndex: number }
   | { kind: 'PC'; pc: string }
   | { kind: 'RegisterRow'; reg: string }
   | { kind: 'CanvasComponent'; id: 'CU' | 'REG' | 'ALU' }
+  | { kind: 'CodeFragment'; lineIndex: number; fragment: string }
+  | { kind: 'FloatingToken'; tokenId: string }
 
 export type ADLEvent =
   | { type: 'SetActiveLine'; by: 'pc' | 'index'; value: number | string }
@@ -38,6 +47,9 @@ export type ADLEvent =
   | { type: 'OverlayArrow'; from: AnchorRef; to: AnchorRef; text: string }
   | { type: 'AnnotateBus'; text: string; at: 'aluInputA' | 'aluInputB' | 'writeback' }
   | { type: 'Wait'; ms: number }
+  | { type: 'HighlightCodeFragment'; lineIndex: number; fragments: FragmentSpan[] }
+  | { type: 'AnimateFragmentMove'; lineIndex: number; fragments: FragmentSpan[]; duration?: number; target?: 'codeBoxCenter' }
+  | { type: 'ClearFragmentHighlight' }
 
 export interface TraceStep {
   snapshot: StepSnapshot

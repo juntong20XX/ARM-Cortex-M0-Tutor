@@ -21,6 +21,22 @@ def _normalize_reg(name: str) -> str:
     return name.strip()
 
 
+def _fragment_spans(line_text: str, fragment_texts: list[str]) -> list[dict]:
+    """
+    在 line_text 中查找各 fragment 的字符跨度。
+    按顺序查找首次出现位置，返回 [{ text, start, end }, ...]。
+    """
+    result: list[dict] = []
+    search_from = 0
+    for frag in fragment_texts:
+        idx = line_text.find(frag, search_from)
+        if idx < 0:
+            continue
+        result.append({"text": frag, "start": idx, "end": idx + len(frag)})
+        search_from = idx + len(frag)
+    return result
+
+
 def _get_current_asm_line(step: "ASMStep") -> "ASMLine | None":
     """根据 step.addr_pc 从 step.disassemble 中取出当前指令的 ASMLine。"""
     from ..connector.asm_basic import ASMLine
@@ -67,7 +83,8 @@ def _events_for_mov(
     """
     为 MOV/MOVS 指令生成“数据来源”箭头事件：
     - 源为寄存器：箭头从源寄存器行指向目的寄存器行；
-    - 源为立即数：箭头从当前代码行指向目的寄存器行。
+    - 源为立即数：箭头从 #3 片段指向 R1 寄存器行；操作数边放大边移动至中央后显示 #3→r1 箭头。
+    - 新增：高亮操作数、边放大边移动到代码框中央，再在中央显示 #3 → r1 箭头。
     """
     # MOV 格式: mov(s) dest, source  -> param=dest, param_1=source
     dest_param = asm_line.param
@@ -78,19 +95,43 @@ def _events_for_mov(
     if not src_param or not src_param.type_name:
         return []
 
+    dest_text = dest_param.text.strip()
+    src_text = src_param.text.strip()
+    line_text = asm_line.to_code(0)
+    fragment_texts = [dest_text, src_text]
+    spans = _fragment_spans(line_text, fragment_texts)
+    fragment_spans_with_ids: list[adl_models.FragmentSpan] = []
+    for i, s in enumerate(spans):
+        span_id = "dest" if i == 0 else "src"
+        fragment_spans_with_ids.append(
+            adl_models.FragmentSpan(
+                text=s["text"],
+                start=s["start"],
+                end=s["end"],
+                id=span_id,
+            )
+        )
+
     events: list[adl_models.ADLEvent] = [
         adl_models.ADLEventFocusCanvas(target="REG"),
         adl_models.ADLEventMarkRegister(reg=dest_reg, mode="write"),
     ]
 
     if src_param.type_name == "r":
-        # 源是寄存器：箭头 源寄存器 -> 目的寄存器
+        # 源是寄存器：同时高亮寄存器、MCU 模块、r1/r2、箭头
         src_reg = _normalize_reg(src_param.text)
         src_value = _reg_value(step.register_values, src_param.text.strip().lower())
         text = f"{src_reg} → {dest_reg}"
         if src_value is not None:
             text = f"{src_reg} ({src_value}) → {dest_reg}"
         events.append(adl_models.ADLEventMarkRegister(reg=src_reg, mode="read"))
+        if fragment_spans_with_ids:
+            events.append(
+                adl_models.ADLEventHighlightCodeFragment(
+                    lineIndex=step.line_counter,
+                    fragments=fragment_spans_with_ids,
+                )
+            )
         events.append(
             adl_models.ADLEventOverlayArrow(
                 from_=adl_models.AnchorRefRegisterRow(reg=src_reg),
@@ -98,17 +139,68 @@ def _events_for_mov(
                 text=text,
             )
         )
+        # 边放大边移动到代码框中央，然后显示 src → dest 箭头
+        if fragment_spans_with_ids:
+            events.extend([
+                adl_models.ADLEventWait(ms=300),
+                adl_models.ADLEventAnimateFragmentMove(
+                    lineIndex=step.line_counter,
+                    fragments=fragment_spans_with_ids,
+                    duration=600,
+                    target="codeBoxCenter",
+                ),
+                adl_models.ADLEventOverlayArrow(
+                    from_=adl_models.AnchorRefFloatingToken(tokenId="src"),
+                    to=adl_models.AnchorRefFloatingToken(tokenId="dest"),
+                    text=text,
+                ),
+            ])
     elif src_param.type_name == "i":
-        # 源是立即数：箭头 当前代码行 -> 目的寄存器
+        # 源是立即数：先高亮 r1/#3，再用 CodeFragment 锚点画 #3 → R1 箭头
         imm = src_param.text.strip()
         text = f"{imm} → {dest_reg}"
-        events.append(
-            adl_models.ADLEventOverlayArrow(
-                from_=adl_models.AnchorRefCodeLineAddr(lineIndex=step.line_counter),
-                to=adl_models.AnchorRefRegisterRow(reg=dest_reg),
-                text=text,
+        # 同时高亮：寄存器、MCU REG 模块、r1 和 #3，箭头从 #3 指向 R1
+        if fragment_spans_with_ids:
+            events.append(
+                adl_models.ADLEventHighlightCodeFragment(
+                    lineIndex=step.line_counter,
+                    fragments=fragment_spans_with_ids,
+                )
             )
-        )
+            events.append(adl_models.ADLEventWait(ms=50))  # 等待 DOM 更新以便解析 CodeFragment 锚点
+            events.append(
+                adl_models.ADLEventOverlayArrow(
+                    from_=adl_models.AnchorRefCodeFragment(
+                        lineIndex=step.line_counter, fragment="src"
+                    ),
+                    to=adl_models.AnchorRefRegisterRow(reg=dest_reg),
+                    text=text,
+                )
+            )
+        else:
+            events.append(
+                adl_models.ADLEventOverlayArrow(
+                    from_=adl_models.AnchorRefCodeLineAddr(lineIndex=step.line_counter),
+                    to=adl_models.AnchorRefRegisterRow(reg=dest_reg),
+                    text=text,
+                )
+            )
+        # 边放大边移动到代码框中央，然后显示 #3 → r1 箭头
+        if fragment_spans_with_ids:
+            events.extend([
+                adl_models.ADLEventWait(ms=300),
+                adl_models.ADLEventAnimateFragmentMove(
+                    lineIndex=step.line_counter,
+                    fragments=fragment_spans_with_ids,
+                    duration=600,
+                    target="codeBoxCenter",
+                ),
+                adl_models.ADLEventOverlayArrow(
+                    from_=adl_models.AnchorRefFloatingToken(tokenId="src"),
+                    to=adl_models.AnchorRefFloatingToken(tokenId="dest"),
+                    text=text,
+                ),
+            ])
     return events
 
 
@@ -543,8 +635,8 @@ def asm_steps_to_trace_response(steps: list["ASMStep"]) -> adl_models.TraceRespo
     # - 为了避免误删用户手写的 `bx lr`，仅当它出现在最后一条反汇编指令且 basic == "bx" 时才过滤。
     last = steps[-1]
     last_asm_line = _get_current_asm_line(last)
-    if last_asm_line is not None and last_asm_line.basic == "bx":
-        steps = steps[:-1]
+    # if last_asm_line is not None and last_asm_line.basic == "bx":
+    #     steps = steps[:-1]
 
     if not steps:
         return adl_models.TraceResponse(

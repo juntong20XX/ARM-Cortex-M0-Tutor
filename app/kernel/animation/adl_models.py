@@ -48,11 +48,24 @@ class AnchorRefCanvasComponent(BaseModel):
     id: Literal["CU", "REG", "ALU"]
 
 
+class AnchorRefCodeFragment(BaseModel):
+    kind: Literal["CodeFragment"] = "CodeFragment"
+    lineIndex: int
+    fragment: str
+
+
+class AnchorRefFloatingToken(BaseModel):
+    kind: Literal["FloatingToken"] = "FloatingToken"
+    tokenId: str
+
+
 AnchorRef = Union[
     AnchorRefCodeLineAddr,
     AnchorRefPC,
     AnchorRefRegisterRow,
     AnchorRefCanvasComponent,
+    AnchorRefCodeFragment,
+    AnchorRefFloatingToken,
 ]
 
 
@@ -94,6 +107,32 @@ class ADLEventWait(BaseModel):
     ms: int
 
 
+class FragmentSpan(BaseModel):
+    """Character span for code fragment: text, start, end indices, optional id for FloatingToken."""
+    text: str
+    start: int
+    end: int
+    id: str | None = None
+
+
+class ADLEventHighlightCodeFragment(BaseModel):
+    type: Literal["HighlightCodeFragment"] = "HighlightCodeFragment"
+    lineIndex: int
+    fragments: list[FragmentSpan]
+
+
+class ADLEventAnimateFragmentMove(BaseModel):
+    type: Literal["AnimateFragmentMove"] = "AnimateFragmentMove"
+    lineIndex: int
+    fragments: list[FragmentSpan]
+    duration: int | None = None
+    target: Literal["codeBoxCenter"] | None = None
+
+
+class ADLEventClearFragmentHighlight(BaseModel):
+    type: Literal["ClearFragmentHighlight"] = "ClearFragmentHighlight"
+
+
 ADLEvent = Union[
     ADLEventSetActiveLine,
     ADLEventFocusCanvas,
@@ -101,6 +140,9 @@ ADLEvent = Union[
     ADLEventOverlayArrow,
     ADLEventAnnotateBus,
     ADLEventWait,
+    ADLEventHighlightCodeFragment,
+    ADLEventAnimateFragmentMove,
+    ADLEventClearFragmentHighlight,
 ]
 
 

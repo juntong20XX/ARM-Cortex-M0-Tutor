@@ -6,6 +6,7 @@
 import type {
   ADLEvent,
   AnchorRef,
+  FragmentSpan,
   StepSnapshot,
   TraceResponse,
   TraceStep,
@@ -18,6 +19,18 @@ export interface TracePlayerDriver {
   markRegister(reg: string, mode: 'read' | 'write' | 'clear'): void
   setOverlay(from: AnchorRef, to: AnchorRef, text: string): void
   wait(ms: number): Promise<void>
+  /** Highlight code fragments within a line (optional: no-op if not implemented). */
+  highlightCodeFragments?(lineIndex: number, fragments: FragmentSpan[]): void
+  /** Animate fragments from source to center, scale up; store positions for FloatingToken (optional). */
+  animateFragmentMove?(
+    lineIndex: number,
+    fragments: FragmentSpan[],
+    options?: { duration?: number; target?: 'codeBoxCenter' }
+  ): Promise<void>
+  /** Clear fragment highlights (optional: no-op if not implemented). */
+  clearFragmentHighlight?(): void
+  /** Called at start of seek/replay to reset fragment UI state (optional). */
+  resetFragmentState?(): void
 }
 
 export interface TracePlayerOptions {
@@ -44,7 +57,7 @@ export interface TraceController {
 
   /**
    * 跳转到指定 step 索引。
-   * 实现策略：从初始状态起顺序重放到目标 step，以支持任意前/后退。
+   * 实现策略：对中间步骤只应用 snapshot（不执行事件），仅对目标步执行事件，避免闪烁。
    */
   stepTo(index: number, options?: { animateWaits?: boolean; speed?: number }): Promise<void>
 
@@ -98,9 +111,11 @@ export async function playTraceStream(
  * 创建一个基于 TraceResponse 的时间轴控制器。
  *
  * 设计要点：
- * - 支持任意 step 前/后跳转：通过从“初始 UI 状态”开始顺序重放到目标 step 实现。
- * - Wait 事件在 seek 时通常应跳过（animateWaits=false），在自动播放时根据 speed 缩放。
- * - 不直接修改现有 playTrace / playTraceStream，对外保持兼容。
+ * - seek (stepTo): 对中间步骤只应用 snapshot（不执行事件），仅对目标步执行事件。
+ *   消除了历史 SetActiveLine 等事件快速触发导致的命令行闪烁。
+ * - 自动播放 (playForward): 增量式逐步执行，不从头重放，避免 O(N²) 重播和闪烁。
+ * - Wait / AnimateFragmentMove 在 animateWaits=false 时均跳过延迟（AnimateFragmentMove
+ *   以 duration=0 执行，保留 floatingTokenPositions 状态供后续 OverlayArrow 使用）。
  */
 export function createTraceController(
   trace: TraceResponse,
@@ -114,18 +129,7 @@ export function createTraceController(
 
   const totalSteps = steps.length
 
-  /**
-   * 从头重放到指定 index（包含 index）。
-   */
-  async function seekToIndex(
-    targetIndex: number,
-    options?: { animateWaits?: boolean; speed?: number }
-  ): Promise<void> {
-    const clampedIndex = Math.max(0, Math.min(totalSteps - 1, targetIndex))
-    const effectiveSpeed = options?.speed && options.speed > 0 ? options.speed : baseSpeed
-    const animateWaits = options?.animateWaits ?? false
-
-    // 应用 initialState 快照（如果有）
+  function applyInitialState() {
     if (trace.initialState) {
       const initSnapshot: StepSnapshot = {
         pc: '',
@@ -136,30 +140,56 @@ export function createTraceController(
       }
       driver.applySnapshot(initSnapshot)
     }
+  }
 
-    // 从第 0 步顺序执行到目标步
-    for (let i = 0; i <= clampedIndex; i++) {
+  /**
+   * 跳转到指定 index：
+   * - 中间步骤只应用 snapshot，不执行事件，避免 SetActiveLine 等在旧行之间闪烁。
+   * - 目标步骤执行事件；animateWaits=false 时跳过 Wait，AnimateFragmentMove 以 duration=0 执行。
+   */
+  async function seekToIndex(
+    targetIndex: number,
+    options?: { animateWaits?: boolean; speed?: number }
+  ): Promise<void> {
+    const clampedIndex = Math.max(0, Math.min(totalSteps - 1, targetIndex))
+    const effectiveSpeed = options?.speed && options.speed > 0 ? options.speed : baseSpeed
+    const animateWaits = options?.animateWaits ?? false
+
+    if (driver.resetFragmentState) {
+      driver.resetFragmentState()
+    }
+    applyInitialState()
+
+    // 中间步骤：只应用 snapshot，不执行事件
+    for (let i = 0; i < clampedIndex; i++) {
       const step = steps[i]
-      if (!step) continue
-      driver.applySnapshot(step.snapshot)
-      for (const ev of step.events) {
-        if (ev.type === 'Wait' && !animateWaits) {
-          continue
-        }
-        await runEvent(ev, driver, effectiveSpeed)
+      if (step) driver.applySnapshot(step.snapshot)
+    }
+
+    // 目标步骤：应用 snapshot 并执行事件
+    const finalStep = steps[clampedIndex]
+    if (finalStep) {
+      driver.applySnapshot(finalStep.snapshot)
+      for (const ev of finalStep.events) {
+        if (ev.type === 'Wait' && !animateWaits) continue
+        await runEvent(ev, driver, effectiveSpeed, animateWaits)
       }
     }
 
     currentIndex = clampedIndex
   }
 
+  /**
+   * 增量式向前播放：每次只执行下一步的事件，不从头重放。
+   * 避免 O(N²) 重播以及 resetFragmentState 引起的视觉清零闪烁。
+   */
   async function playForwardImpl(options: {
     fromIndex?: number
     speed?: number
     animateWaits?: boolean
     shouldContinue: () => boolean
   }): Promise<void> {
-    const { fromIndex, speed, animateWaits, shouldContinue } = options
+    const { fromIndex, speed, animateWaits = true, shouldContinue } = options
     const effectiveSpeed = speed && speed > 0 ? speed : baseSpeed
     const startIndex =
       typeof fromIndex === 'number' && fromIndex >= -1 ? fromIndex : currentIndex
@@ -168,7 +198,16 @@ export function createTraceController(
     while (idx < totalSteps - 1) {
       if (!shouldContinue()) break
       const nextIndex = idx + 1
-      await seekToIndex(nextIndex, { animateWaits: animateWaits ?? true, speed: effectiveSpeed })
+      const step = steps[nextIndex]
+      if (step) {
+        driver.applySnapshot(step.snapshot)
+        for (const ev of step.events) {
+          if (!shouldContinue()) break
+          if (ev.type === 'Wait' && !animateWaits) continue
+          await runEvent(ev, driver, effectiveSpeed, animateWaits)
+        }
+      }
+      currentIndex = nextIndex
       idx = nextIndex
       if (!shouldContinue()) break
     }
@@ -201,7 +240,8 @@ export function createTraceController(
 async function runEvent(
   ev: ADLEvent,
   driver: TracePlayerDriver,
-  speed: number
+  speed: number,
+  animateWaits: boolean = true
 ): Promise<void> {
   switch (ev.type) {
     case 'SetActiveLine':
@@ -223,6 +263,28 @@ async function runEvent(
       break
     case 'Wait':
       await driver.wait(Math.round(ev.ms / speed))
+      break
+    case 'HighlightCodeFragment':
+      if (driver.highlightCodeFragments) {
+        driver.highlightCodeFragments(ev.lineIndex, ev.fragments)
+      }
+      break
+    case 'AnimateFragmentMove': {
+      // seek 时以 duration=0 执行：跳过动画延迟，但保留 floatingTokenPositions
+      // 状态，确保后续 OverlayArrow(FloatingToken) 能正确解析坐标。
+      const scaledDuration = animateWaits ? Math.round((ev.duration ?? 600) / speed) : 0
+      if (driver.animateFragmentMove) {
+        await driver.animateFragmentMove(ev.lineIndex, ev.fragments, {
+          duration: scaledDuration,
+          target: ev.target,
+        })
+      }
+      break
+    }
+    case 'ClearFragmentHighlight':
+      if (driver.clearFragmentHighlight) {
+        driver.clearFragmentHighlight()
+      }
       break
     default:
       break

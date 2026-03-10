@@ -51,9 +51,9 @@
 | 路径 | 职责 |
 |------|------|
 | `app/kernel/` | 仿真核心：汇编解析、QEMU/GDB 生命周期、单步迭代器、ADL 模型 |
-| `app/apis/` | FastAPI 路由：trace、project、session、user、announcements |
+| `app/apis/` | FastAPI 路由：trace、project、session、user、user_groups、announcements |
 | `app/database/` | SQLAlchemy ORM 模型与数据库工具 |
-| `app/core/` | 配置、安全、日志（与网络无关） |
+| `app/core/` | 配置、安全、日志（defender，与网络无关） |
 | `app/services/` | 依赖网络层的业务逻辑 |
 | `web/` | Vue.js 前端 |
 | `example/` | 部署示例（Authelia 认证、Traefik 反向代理） |
@@ -142,38 +142,72 @@ config = Config(
 
 ---
 
-## 启动服务
+## 启动应用
+
+### 后端
+
+后端没有内置启动脚本，需使用配置了 Session 中间件和数据库的启动器。可参考 `prototyping/login-demo.py`：
 
 ```bash
 cd /path/to/ARM-Cortex-M0-Tutor
-python -m app
+source app/.venv/bin/activate
+pip install -r app/requirements.txt
+python -m uvicorn prototyping.login-demo:app --host 0.0.0.0 --port 8000
 ```
 
-API 服务地址：`http://localhost:8000`。
-交互式文档（Swagger UI）：`http://localhost:8000/docs`。
+生产环境请在工作目录创建 `config.toml`（或通过环境变量设置 `database_url`）。API 地址：`http://localhost:8000`；交互式文档（Swagger UI）：`http://localhost:8000/docs`。
+
+### 前端
+
+```bash
+cd web
+npm install
+npm run dev        # 开发服务器 http://localhost:5173
+npm run build      # 生产构建 → dist/
+npm run preview    # 预览生产构建
+```
+
+Vite 开发服务器**不会**代理到后端，需单独启动后端，必要时配置 CORS。
 
 ---
 
 ## Docker 部署
 
-项目提供基于 Debian 的 `Dockerfile`，已预装所有系统依赖。
+项目提供基于 Debian 的 `Dockerfile`，已预装所有系统依赖（QEMU、ARM GCC、GDB、CMake、Jupyter）。容器内运行 Jupyter Notebook，便于开发与实验。
 
 ```bash
-# 构建镜像
+# 构建镜像（AUTHORIZED_KEYS_PATH 为 SSH 所需，若不需要可用占位文件）
 docker build \
   --build-arg AUTHORIZED_KEYS_PATH=~/.ssh/authorized_keys \
   -t arm-m0-tutor .
 
-# 开发模式运行（开启 SSH）
+# 开发模式运行（Jupyter + 可选 SSH）
 docker run -p 8888:8888 -p 22:22 \
   -e develop=true \
   arm-m0-tutor
 
-# 生产模式运行
+# 仅运行 Jupyter
 docker run -p 8888:8888 arm-m0-tutor
 ```
 
-反向代理配置请参考 `example/reverse-proxy/`（Traefik），认证服务配置请参考 `example/auth-system/`（Authelia）。
+Jupyter 访问地址：`http://localhost:8888`。完整 Web 应用部署（FastAPI + Vue SPA）请参考 `example/reverse-proxy/`（Traefik）和 `example/auth-system/`（Authelia）。
+
+---
+
+## 测试
+
+```bash
+# 在仓库根目录，激活 venv 后执行：
+python -m pytest test/
+
+# 运行单个测试文件：
+python -m pytest test/test_step_to_adl.py
+
+# 运行单个测试：
+python -m pytest test/test_step_to_adl.py::TestAsmStepToAdl::test_movs
+```
+
+测试使用每个测试类初始化时的内存 SQLite 数据库。
 
 ---
 
@@ -188,9 +222,10 @@ docker run -p 8888:8888 arm-m0-tutor
 | `GET` | `/api/project/trace?uuid=…` | 同上，使用查询参数版本 |
 | `GET/POST` | `/api/project` | 列出 / 创建项目 |
 | `GET/PUT/DELETE` | `/api/project/{uuid}` | 读取 / 更新 / 删除项目 |
-| `POST` | `/api/session/login` | 登录（密码或 OAuth） |
-| `DELETE` | `/api/session/logout` | 登出 |
+| `GET` | `/api/login` | 登录（重定向至 OAuth 或密码表单） |
+| `GET` | `/api/logout` | 登出 |
 | `GET` | `/api/user/me` | 获取当前用户信息 |
+| `GET/POST/PUT/DELETE` | `/api/user-groups` | 列出 / 创建 / 更新 / 删除用户组 |
 | `GET` | `/api/announcements` | 列出可见公告 |
 
 Trace 接口返回符合 **ADL v1** 规范的 `TraceResponse` JSON，由前端动画引擎消费。
@@ -243,21 +278,24 @@ stop_qemu(c, config)
 ```
 ARM-Cortex-M0-Tutor/
 ├── app/
+│   ├── app.py               # 裸 FastAPI 实例（中间件由调用方配置）
 │   ├── kernel/
 │   │   ├── connector/       # Config、ALoader、ASMLine 解析器、GDB/QEMU 任务
-│   │   ├── animation/       # ADL Pydantic 模型、step→ADL 转换
+│   │   ├── animation/       # ADL Pydantic 模型、step→ADL 转换（step_to_adl.py）
 │   │   └── qemu_m0/         # CMake 工程、startup.c、链接脚本（microbit 板）
 │   ├── apis/
-│   │   └── routes/          # trace、project、session、user、announcements 路由
-│   ├── database/            # SQLAlchemy 模型与数据库工具函数
-│   ├── core/                # 配置、安全、日志（与网络无关）
-│   └── services/            # 依赖网络层的业务逻辑工具
-├── web/                     # Vue.js 前端
+│   │   ├── main.py          # 聚合所有路由 → api_router（前缀 /api）
+│   │   └── routes/          # trace、project、session、user、user_groups、announcements
+│   ├── database/            # SQLAlchemy 模型、dbtools、enter（db_context）
+│   ├── core/                # 配置、安全、defender（日志）
+│   └── services/            # 业务逻辑工具
+├── web/                     # Vue 3 前端（Vite、Element Plus）
+├── prototyping/             # 演示启动器（如 login-demo.py）
 ├── example/
 │   ├── auth-system/         # Authelia docker-compose 示例
 │   └── reverse-proxy/       # Traefik docker-compose 示例
 ├── test/                    # 单元测试
-├── Dockerfile
+├── Dockerfile               # Debian + QEMU/ARM 工具链 + Jupyter
 └── config.toml              # （需自行创建，不提交到版本库）
 ```
 

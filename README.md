@@ -51,7 +51,7 @@ A web-based, open-source visual simulator for the ARM Cortex-M0 processor, desig
 | Path | Role |
 |------|------|
 | `app/kernel/` | Emulation core: assembly parsing, QEMU/GDB lifecycle, step iterator, ADL models |
-| `app/apis/` | FastAPI routers: trace, project, session, user, announcements |
+| `app/apis/` | FastAPI routers: trace, project, session, user, user_groups, announcements |
 | `app/database/` | SQLAlchemy ORM models and DB utilities |
 | `app/core/` | Settings, security, logging (network-independent) |
 | `app/services/` | Business logic that depends on the network layer |
@@ -142,37 +142,72 @@ config = Config(
 
 ---
 
-## Running the Server
+## Running the Application
+
+### Backend
+
+The backend has no built-in run script. Use a launcher that configures the FastAPI app with session middleware and database. Example (see `prototyping/login-demo.py`):
 
 ```bash
 cd /path/to/ARM-Cortex-M0-Tutor
-python -m app
+source app/.venv/bin/activate
+pip install -r app/requirements.txt
+python -m uvicorn prototyping.login-demo:app --host 0.0.0.0 --port 8000
 ```
 
-The API will be available at `http://localhost:8000`. Interactive docs: `http://localhost:8000/docs`.
+Create `config.toml` in the working directory (or set `database_url` via env) for production setups. The API will be available at `http://localhost:8000`. Interactive docs: `http://localhost:8000/docs`.
+
+### Frontend
+
+```bash
+cd web
+npm install
+npm run dev        # Dev server at http://localhost:5173
+npm run build      # Production build → dist/
+npm run preview    # Preview production build
+```
+
+The Vite dev server does **not** proxy to the backend. Run the backend separately and ensure CORS is configured if needed.
 
 ---
 
 ## Docker
 
-A `Dockerfile` is provided based on Debian with all system dependencies pre-installed.
+A `Dockerfile` is provided based on Debian with all system dependencies (QEMU, ARM GCC, GDB, CMake, Jupyter) pre-installed. The container runs Jupyter Notebook for development and experimentation.
 
 ```bash
-# Build
+# Build (AUTHORIZED_KEYS_PATH is required for SSH; use a dummy file if not needed)
 docker build \
   --build-arg AUTHORIZED_KEYS_PATH=~/.ssh/authorized_keys \
   -t arm-m0-tutor .
 
-# Run (development mode with SSH)
+# Run (development mode: Jupyter + optional SSH)
 docker run -p 8888:8888 -p 22:22 \
   -e develop=true \
   arm-m0-tutor
 
-# Run (production)
+# Run (Jupyter only)
 docker run -p 8888:8888 arm-m0-tutor
 ```
 
-See `example/reverse-proxy/` for a Traefik reverse-proxy setup and `example/auth-system/` for an Authelia authentication layer.
+Jupyter is available at `http://localhost:8888`. For a full web-app deployment (FastAPI + Vue SPA), see `example/reverse-proxy/` (Traefik) and `example/auth-system/` (Authelia).
+
+---
+
+## Tests
+
+```bash
+# From repo root, with venv active:
+python -m pytest test/
+
+# Single test file:
+python -m pytest test/test_step_to_adl.py
+
+# Single test:
+python -m pytest test/test_step_to_adl.py::TestAsmStepToAdl::test_movs
+```
+
+Tests use an in-memory SQLite database initialized per test class.
 
 ---
 
@@ -187,9 +222,10 @@ All routes are prefixed with `/api`.
 | `GET` | `/api/project/trace?uuid=…` | Same as above, query-param variant |
 | `GET/POST` | `/api/project` | List / create projects |
 | `GET/PUT/DELETE` | `/api/project/{uuid}` | Read / update / delete a project |
-| `POST` | `/api/session/login` | Login (password or OAuth) |
-| `DELETE` | `/api/session/logout` | Logout |
+| `GET` | `/api/login` | Login (redirects to OAuth or password form) |
+| `GET` | `/api/logout` | Logout |
 | `GET` | `/api/user/me` | Current user info |
+| `GET/POST/PUT/DELETE` | `/api/user-groups` | List / create / update / delete user groups |
 | `GET` | `/api/announcements` | List visible announcements |
 
 The trace endpoint returns an **ADL v1** `TraceResponse` JSON object consumed by the frontend animator.
@@ -242,21 +278,24 @@ stop_qemu(c, config)
 ```
 ARM-Cortex-M0-Tutor/
 ├── app/
+│   ├── app.py               # Bare FastAPI instance (middleware configured by caller)
 │   ├── kernel/
 │   │   ├── connector/       # Config, ALoader, ASMLine parser, GDB/QEMU tasks
 │   │   ├── animation/       # ADL Pydantic models, step→ADL conversion
 │   │   └── qemu_m0/         # CMake project, startup.c, linker script (microbit board)
 │   ├── apis/
-│   │   └── routes/          # trace, project, session, user, announcements
-│   ├── database/            # SQLAlchemy models and DB helpers
-│   ├── core/                # Settings, security, logging
+│   │   ├── main.py          # Aggregates all routers → api_router (prefix: /api)
+│   │   └── routes/          # trace, project, session, user, user_groups, announcements
+│   ├── database/            # SQLAlchemy models, dbtools, enter (db_context)
+│   ├── core/                # Settings, security, defender (logging)
 │   └── services/            # Business-logic utilities
-├── web/                     # Vue.js frontend
+├── web/                     # Vue 3 frontend (Vite, Element Plus)
+├── prototyping/             # Demo launchers (e.g. login-demo.py)
 ├── example/
 │   ├── auth-system/         # Authelia docker-compose example
 │   └── reverse-proxy/       # Traefik docker-compose example
 ├── test/                    # Unit tests
-├── Dockerfile
+├── Dockerfile               # Debian + QEMU/ARM toolchain + Jupyter
 └── config.toml              # (create this; not committed)
 ```
 

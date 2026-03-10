@@ -8,6 +8,7 @@ export interface Announcement {
   title: string
   content: string
   createdAt?: string
+  visibleGroupNames?: string[]
 }
 
 export interface AnnouncementsResponse {

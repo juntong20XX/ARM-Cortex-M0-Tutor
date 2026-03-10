@@ -179,6 +179,7 @@ Develop Handbook.md
 *.pub
 .idea/
 .vscode/
+CLAUDE.md
 
 # My Ignore
 example/auth-system/cache

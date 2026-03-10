@@ -79,6 +79,23 @@
               placeholder="Announcement content"
             />
           </el-form-item>
+          <el-form-item label="Visible to">
+            <el-select
+              v-model="announceForm.visibleGroups"
+              multiple
+              collapse-tags
+              collapse-tags-tooltip
+              placeholder="Select groups (empty = public)"
+              style="width: 100%; max-width: 400px"
+            >
+              <el-option
+                v-for="g in groupsList"
+                :key="g.name"
+                :label="g.name"
+                :value="g.name"
+              />
+            </el-select>
+          </el-form-item>
           <el-form-item>
             <el-button type="primary" :loading="publishLoading" @click="handlePublishAnnouncement">
               Publish
@@ -173,6 +190,21 @@
               </el-button>
             </div>
             <p v-if="item.createdAt" class="announcement-date">{{ item.createdAt }}</p>
+            <div class="announcement-groups">
+              <el-tag
+                v-if="!item.visibleGroupNames?.length"
+                type="info"
+                effect="plain"
+                size="small"
+              >Public</el-tag>
+              <el-tag
+                v-for="g in item.visibleGroupNames"
+                :key="g"
+                type="success"
+                effect="plain"
+                size="small"
+              >{{ g }}</el-tag>
+            </div>
             <p class="announcement-content">{{ item.content }}</p>
           </li>
         </ul>
@@ -208,7 +240,7 @@ const isAdmin = ref(false)
 const announcementsList = ref<Announcement[]>([])
 const announcementsLoading = ref(false)
 const publishLoading = ref(false)
-const announceForm = ref({ title: '', content: '' })
+const announceForm = ref({ title: '', content: '', visibleGroups: ['everyone'] as string[] })
 const groupsList = ref<UserGroup[]>([])
 const groupsLoading = ref(false)
 const groupLoading = ref(false)
@@ -362,16 +394,20 @@ async function handleDeleteUser(uuid: string) {
 }
 
 async function handlePublishAnnouncement() {
-  const { title, content } = announceForm.value
+  const { title, content, visibleGroups } = announceForm.value
   if (!title.trim() || !content.trim()) {
     ElMessage.warning('Please fill in title and content')
     return
   }
   publishLoading.value = true
   try {
-    await createAnnouncement({ title: title.trim(), content: content.trim() })
+    await createAnnouncement({
+      title: title.trim(),
+      content: content.trim(),
+      visibleGroupNames: visibleGroups.length > 0 ? visibleGroups : null,
+    })
     ElMessage.success('Announcement published')
-    announceForm.value = { title: '', content: '' }
+    announceForm.value = { title: '', content: '', visibleGroups: ['everyone'] }
     await loadAnnouncements()
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : 'Publish failed')
@@ -533,6 +569,13 @@ onMounted(load)
   margin: 6px 0 8px;
   font-size: 12px;
   color: #6b7280;
+}
+
+.announcement-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0 8px;
 }
 
 .announcement-content {

@@ -98,6 +98,7 @@ class Announcement(BaseModel):
     title: str
     content: str
     createdAt: str | None = None  # ISO 日期字符串，可选
+    visibleGroupNames: list[str] = []  # 空列表表示公开
 
 
 class AnnouncementsResponse(BaseModel):

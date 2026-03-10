@@ -45,6 +45,7 @@ async def get_announcements(request: Request):
                 title=r.title,
                 content=r.content,
                 createdAt=r.created_at.isoformat() if r.created_at else None,
+                visibleGroupNames=[ug.name for ug in r.visible_user_groups],
             )
             for r in rows
         ]

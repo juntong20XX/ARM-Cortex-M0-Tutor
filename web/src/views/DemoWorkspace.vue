@@ -962,6 +962,10 @@ function createTraceDriver() {
       fragmentHighlights.value = new Map()
       floatingTokenPositions.value = new Map()
       floatingTokens.value = []
+    },
+    clearStepOverlays() {
+      demoOverlay.value.show = false
+      ;(registers.value as RegisterRow[]).forEach(r => { r.status = '' })
     }
   }
 }

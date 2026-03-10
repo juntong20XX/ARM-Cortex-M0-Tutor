@@ -31,6 +31,8 @@ export interface TracePlayerDriver {
   clearFragmentHighlight?(): void
   /** Called at start of seek/replay to reset fragment UI state (optional). */
   resetFragmentState?(): void
+  /** Called before each step to hide overlay arrows / bus annotations (optional). */
+  clearStepOverlays?(): void
 }
 
 export interface TracePlayerOptions {
@@ -158,6 +160,9 @@ export function createTraceController(
     if (driver.resetFragmentState) {
       driver.resetFragmentState()
     }
+    if (driver.clearStepOverlays) {
+      driver.clearStepOverlays()
+    }
     applyInitialState()
 
     // 中间步骤：只应用 snapshot，不执行事件
@@ -200,6 +205,9 @@ export function createTraceController(
       const nextIndex = idx + 1
       const step = steps[nextIndex]
       if (step) {
+        // Clear per-step visual state from previous step
+        if (driver.resetFragmentState) driver.resetFragmentState()
+        if (driver.clearStepOverlays) driver.clearStepOverlays()
         driver.applySnapshot(step.snapshot)
         for (const ev of step.events) {
           if (!shouldContinue()) break

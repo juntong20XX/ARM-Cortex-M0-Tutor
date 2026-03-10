@@ -83,7 +83,7 @@ async function loadProject(uuid: string) {
     if (Array.isArray(data.executed) && data.executed.length > 0) {
       const raw = data.executed[0]
       if (raw && typeof raw === 'object') {
-        // 这里假定后端返回的结构已经符合 TraceResponse 规范；若结构不兼容，后续前端会优雅降级。
+        // Assumes the backend response already conforms to the TraceResponse schema; incompatible structures will degrade gracefully.
         executedTrace = raw as TraceResponse
       }
     }

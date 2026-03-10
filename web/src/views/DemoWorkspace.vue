@@ -1,6 +1,6 @@
 <template>
   <div class="demo-container" ref="demoContainerRef" :style="{ paddingLeft: paddingLeft + 'px', paddingRight: paddingRight + 'px' }">
-    <!-- 左边缘拖拽条：与内容左边界对齐 -->
+    <!-- Left edge resize handle: aligned with content left boundary -->
     <div class="resize-edge resize-edge-left" :style="{ left: paddingLeft + 'px' }" @mousedown.prevent="startEdgeResize('left', $event)"></div>
 
     <div class="left-panel" ref="leftPanelRef">
@@ -79,7 +79,7 @@
           size="small"
           class="addr-hint"
         >
-          地址暂时不可用
+          Address unavailable
         </el-tag>
       </div>
       <div class="editor-wrapper" ref="editorWrapperRef" :style="{ height: editorHeight + 'px' }">
@@ -135,7 +135,7 @@
       </div>
     </div>
 
-    <!-- 可拖拽分隔条 -->
+    <!-- Draggable divider -->
     <div class="resize-handle" @mousedown="startResize"></div>
 
     <div class="right-panel" ref="rightPanelRef" :style="{ width: rightPanelWidth + 'px' }">
@@ -253,7 +253,7 @@
       </div>
     </div>
 
-    <!-- 右边缘拖拽条：与内容右边界对齐 -->
+    <!-- Right edge resize handle: aligned with content right boundary -->
     <div class="resize-edge resize-edge-right" :style="{ right: paddingRight + 'px' }" @mousedown.prevent="startEdgeResize('right', $event)"></div>
 
     <!-- Overlay Layer for Arrows (Moved to Container Level) -->
@@ -316,7 +316,7 @@ const defaultCode =
   'MOVS r1, #5'
 const code = ref(props.initialCode ?? defaultCode)
 
-// 执行得到的代码行（带真实地址），仅在项目模式中使用；Demo 模式仍保持原有行为。
+// Code lines with real addresses from execution; only used in project mode. Demo mode keeps its original behaviour.
 const executionCodeLines = ref<CodeLine[] | null>(null)
 
 watch(
@@ -381,11 +381,11 @@ const codeLines = computed(() => {
   return code.value.split('\n')
 })
 
-// 地址列显示逻辑：
-// - Demo 模式（无 projectUuid）：使用旧逻辑，根据行号顺序生成示例地址；
-// - 项目模式（有 projectUuid）：
-//   - 若 executionCodeLines 有值：按源码中的有效指令行与 executionCodeLines 逐行对齐，使用 TraceResponse.code.addr；
-//   - 否则：地址全部为空，并在 UI 中提示“地址暂时不可用”。
+// Address column logic:
+// - Demo mode (no projectUuid): use sequential example addresses based on line order.
+// - Project mode (has projectUuid):
+//   - If executionCodeLines is set: align source executable lines with executionCodeLines and use TraceResponse.code.addr.
+//   - Otherwise: all addresses are empty and the UI shows “Address unavailable”.
 const CODE_BASE = 0x0000
 
 function isExecutableSourceLine(line: string): boolean {
@@ -399,7 +399,7 @@ function isExecutableSourceLine(line: string): boolean {
 const codeLineAddresses = computed(() => {
   const lines = codeLines.value
 
-  // Demo 模式：保持原有示例地址逻辑
+  // Demo mode: keep original example address logic
   if (!props.projectUuid) {
     const addrs: string[] = []
     let addr = CODE_BASE
@@ -415,12 +415,12 @@ const codeLineAddresses = computed(() => {
     return addrs
   }
 
-  // 项目模式：优先根据 executionCodeLines 中的真实地址进行映射
+  // Project mode: map real addresses from executionCodeLines
   const execLines = executionCodeLines.value
   const addrs: string[] = new Array(lines.length).fill('')
 
   if (!execLines || execLines.length === 0) {
-    // 无执行结果：地址为空，UI 会提示“地址暂时不可用”
+    // No execution result: addresses are empty, UI shows “Address unavailable”
     return addrs
   }
 
@@ -453,10 +453,10 @@ const showAddressUnavailable = computed(() => {
   return !!(props.projectUuid && !hasExecutionAddresses.value)
 })
 
-// 当前高亮行索引（0-based），对应 "ADD 2 r0 r1" 所在行
+// Currently highlighted line index (0-based)
 const activeLineIndex = ref(3)
 
-// 存储每行 DOM 元素的引用
+// Stores DOM element references for each code line
 const lineRefs = ref({})
 const setLineRef = (el, index) => {
   if (el) {
@@ -521,7 +521,7 @@ const flags = ref({
   V: false  // Overflow
 })
 
-// 内存：64KB 后备存储，视图可指定起始地址与显示条数
+// Memory: 64KB backing store; view can specify start address and row count
 const MEMORY_SIZE = 0x10000
 const memoryStore = ref(Array(MEMORY_SIZE).fill(0))
 const memoryViewStart = ref(0)
@@ -550,7 +550,7 @@ const displayedMemory = computed(() => {
   return list
 })
 
-// 同步 memoryViewStart 变化到 hex 输入框（外部修改 start 时）
+// Sync memoryViewStart changes back to the hex input (for external modifications)
 watch(memoryViewStart, (v) => {
   memoryViewStartHex.value = '0x' + v.toString(16).padStart(4, '0').toUpperCase()
 }, { immediate: true })
@@ -580,21 +580,21 @@ const leftPanelRef = ref<HTMLElement | null>(null)
 const rightPanelRef = ref<HTMLElement | null>(null)
 const demoContainerRef = ref<HTMLElement | null>(null)
 
-// ====== 拖拽调整面板尺寸 ======
+// ====== Resize / drag panel sizes ======
 const rightPanelWidth = ref(350)
 const paddingLeft = ref(12)
 const paddingRight = ref(12)
 
-// 左面板：编辑器与画布初始比例 3:2，首次加载时按左面板高度计算
+// Left panel: editor-to-canvas initial ratio 3:2, calculated on first mount
 const EDITOR_CANVAS_RATIO = [3, 2]
 const editorHeight = ref(180)
-// 右面板：Flags / Registers / Memory 默认比例 1:3:2，首次加载时按右面板高度计算
+// Right panel: Flags / Registers / Memory default ratio 1:3:2, calculated on first mount
 const FLAGS_REGISTERS_MEMORY_RATIO = [1, 3, 2]
 const RESIZE_HANDLE_H = 6
 const flagsHeight = ref(110)
 const memoryHeight = ref(200)
 
-// 通用拖拽状态
+// Shared drag state
 let dragCtx: {
   type: 'col' | 'editor-canvas' | 'flags-registers' | 'registers-memory' | 'edge-left' | 'edge-right'
   startX?: number
@@ -612,7 +612,7 @@ const unlockDrag = () => {
   document.body.style.cursor = ''
 }
 
-// --- 水平拖拽（左右面板） ---
+// --- Horizontal drag (left/right panels) ---
 const startResize = (e: MouseEvent) => {
   dragCtx = { type: 'col', startX: e.clientX, startValue: rightPanelWidth.value }
   document.addEventListener('mousemove', onDrag)
@@ -620,7 +620,7 @@ const startResize = (e: MouseEvent) => {
   lockDrag('col-resize')
 }
 
-// --- 垂直拖拽（上下组件） ---
+// --- Vertical drag (stacked components) ---
 const startVertResize = (type: 'editor-canvas' | 'flags-registers' | 'registers-memory', e: MouseEvent) => {
   let startValue = 0
   if (type === 'editor-canvas') startValue = editorHeight.value
@@ -633,7 +633,7 @@ const startVertResize = (type: 'editor-canvas' | 'flags-registers' | 'registers-
   lockDrag('row-resize')
 }
 
-// --- 边缘拖拽（左右边距） ---
+// --- Edge drag (left/right padding) ---
 const startEdgeResize = (side: 'left' | 'right', e: MouseEvent) => {
   dragCtx = {
     type: side === 'left' ? 'edge-left' : 'edge-right',
@@ -645,33 +645,33 @@ const startEdgeResize = (side: 'left' | 'right', e: MouseEvent) => {
   lockDrag('col-resize')
 }
 
-// --- 统一拖拽处理 ---
+// --- Unified drag handler ---
 const onDrag = (e: MouseEvent) => {
   if (!dragCtx) return
 
   if (dragCtx.type === 'edge-left') {
-    // 左边缘：向右拖增大 padding
+    // Left edge: drag right to increase padding
     const dx = e.clientX - (dragCtx.startX ?? 0)
     paddingLeft.value = Math.max(0, Math.min(300, dragCtx.startValue + dx))
   } else if (dragCtx.type === 'edge-right') {
-    // 右边缘：向左拖增大 padding
+    // Right edge: drag left to increase padding
     const dx = e.clientX - (dragCtx.startX ?? 0)
     paddingRight.value = Math.max(0, Math.min(300, dragCtx.startValue - dx))
   } else if (dragCtx.type === 'col') {
-    // 水平：调整右面板宽度
+    // Horizontal: adjust right panel width
     if (!demoContainerRef.value) return
     const containerRect = demoContainerRef.value.getBoundingClientRect()
     const newWidth = containerRect.right - e.clientX - paddingRight.value
     rightPanelWidth.value = Math.max(180, Math.min(containerRect.width * 0.6, newWidth))
   } else {
-    // 垂直：调整组件高度
+    // Vertical: adjust component heights
     const dy = e.clientY - (dragCtx.startY ?? 0)
     if (dragCtx.type === 'editor-canvas') {
       editorHeight.value = Math.max(60, dragCtx.startValue + dy)
     } else if (dragCtx.type === 'flags-registers') {
       flagsHeight.value = Math.max(60, dragCtx.startValue + dy)
     } else if (dragCtx.type === 'registers-memory') {
-      // 向下拖 → memory 变小
+      // Drag down → shrink memory panel
       memoryHeight.value = Math.max(60, dragCtx.startValue - dy)
     }
   }
@@ -1053,7 +1053,7 @@ const drawArchitecture = (step = 0) => {
   }
 
   if (step >= 3) {
-      // 显示写回目的寄存器的结果，帮助理解数据流向
+      // Show writeback destination register result to illustrate data flow
       ctx.fillStyle = '#333'
       ctx.font = 'bold 14px monospace'
       ctx.fillText("Write R1 = 3", REG.x + REG.w + 40, REG.y + 45)
@@ -1138,20 +1138,20 @@ const updateOverlay = (targetType: 'CANVAS' | 'REGISTER' | '', targetValue: stri
     return
   }
   
-  // 1. Get Source Position (Active Line) - 使用地址元素（.line-addr）作为箭头起点
+  // 1. Get source position (active line) — use the address element (.line-addr) as the arrow origin
   const activeLineEl = (lineRefs.value as any)[activeLineIndex.value]
   const containerEl = demoContainerRef.value
   
   if (!activeLineEl || !containerEl) return
   
-  // 获取地址元素（.line-addr）作为箭头起点
+  // Get the address element (.line-addr) as the arrow origin
   const lineAddrEl = activeLineEl.querySelector('.line-addr') as HTMLElement | null
   if (!lineAddrEl) return
   
   const addrRect = lineAddrEl.getBoundingClientRect()
   const containerRect = containerEl.getBoundingClientRect()
   
-  // 箭头从地址左边缘出发
+  // Arrow starts from the left edge of the address element
   const fromX = addrRect.left - containerRect.left
   const fromY = addrRect.top - containerRect.top + addrRect.height / 2
   
@@ -1237,7 +1237,7 @@ function applyRightPanelRatioHeights() {
   const part = total / sum
   flagsHeight.value = Math.max(60, Math.round(part * FLAGS_REGISTERS_MEMORY_RATIO[0]))
   memoryHeight.value = Math.max(60, Math.round(part * FLAGS_REGISTERS_MEMORY_RATIO[2]))
-  // Registers 占 3 份，由 flex:1 自动填充
+  // Registers takes 3 shares, filled automatically by flex:1
 }
 
 onMounted(() => {
@@ -1358,11 +1358,11 @@ async function runTraceAnimation(trace: TraceResponse) {
   if (trace.initialState) applySnapshotToUI({ pc: '', lineCounter: 0, registers: trace.initialState.registers || {}, flags: trace.initialState.flags || { N: 0, Z: 0, C: 0, V: 0 } })
   if (trace.code && trace.code.length) {
     if (!props.projectUuid) {
-      // Demo 模式：仍然使用 TraceResponse 中的代码文本覆盖编辑区，保持现有体验。
+      // Demo mode: overwrite the editor with code text from TraceResponse to preserve existing behaviour.
       code.value = trace.code.map(c => c.text).join('\n')
       await nextTick()
     } else {
-      // 项目模式：保留编辑区中的源码，仅更新执行地址映射。
+      // Project mode: keep editor source unchanged, only update the execution address mapping.
       executionCodeLines.value = trace.code
     }
   } else if (props.projectUuid) {
@@ -1383,7 +1383,7 @@ async function runTraceAnimation(trace: TraceResponse) {
   if (controller.totalSteps > 0) {
     currentStepIndex.value = -1
     currentStepText.value = ''
-    // 点击 Run 后自动从第一步开始播放动画（从 -1 开始，playForward 会执行 step 0）
+    // After Run: auto-play from step 0 (fromIndex -1 so playForward executes step 0)
     playFromCurrent()
   } else {
     isAnimating.value = false
@@ -1440,7 +1440,7 @@ async function playFromCurrent() {
     isAnimating.value = false
     if (controller.currentIndex === controller.totalSteps - 1 && controller.totalSteps > 0) {
       currentStepText.value = 'Execution Completed'
-      // 单步或最后一步：延迟清除 overlay/浮动 token/寄存器高亮，使用户能看清最终状态
+      // On last step: delay clearing overlay/floating tokens/register highlights so the user can see the final state
       const clearDelay = 1200
       setTimeout(() => {
         if (traceController.value === controller) {
@@ -1600,7 +1600,7 @@ async function runDemoFallback() {
   box-sizing: border-box;
 }
 
-/* 左右边缘拖拽条 */
+/* Left/right edge resize handles */
 .resize-edge {
   position: absolute;
   top: 0;
@@ -1901,7 +1901,7 @@ canvas {
   background: #252526;
 }
 
-/* 可拖拽分隔条 */
+/* Draggable divider (vertical) */
 .resize-handle {
   width: 6px;
   cursor: col-resize;
@@ -1941,20 +1941,20 @@ canvas {
   overflow: hidden;
 }
 
-/* 面板区域通用 */
+/* Generic panel section */
 .panel-section {
   flex: none;
   min-height: 0;
   overflow: hidden;
 }
 
-/* Registers 区域弹性填充 */
+/* Registers section: flex fill */
 .panel-section.section-flex {
   flex: 1;
   min-height: 0;
 }
 
-/* 卡片填满 section */
+/* Card fills its section */
 .full-card {
   height: 100%;
   display: flex;
@@ -1967,7 +1967,7 @@ canvas {
   overflow-y: auto;
 }
 
-/* 水平分隔条（上下拖拽） */
+/* Horizontal divider (top/bottom drag) */
 .resize-handle-h {
   height: 6px;
   cursor: row-resize;
@@ -2019,7 +2019,7 @@ canvas {
   transition: all 0.3s;
 }
 
-/* 紧凑卡片头 */
+/* Compact card header */
 ::deep(.el-card__header) {
   padding: 8px 12px;
 }
@@ -2044,7 +2044,7 @@ canvas {
   font-family: monospace;
 }
 
-/* Registers 两列网格 */
+/* Registers two-column grid */
 .registers-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);

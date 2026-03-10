@@ -26,7 +26,7 @@ const editForm = ref({ name: '', description: '', content: '', source: '' })
 const deletingUuid = ref('')
 const deleteError = ref('')
 
-// 内置的简单 demo 项目：用于在无真实项目时提供一个入口
+// Built-in demo project: provides an entry point when no real projects exist
 const simpleDemoProject = {
   id: 'demo-simple',
   name: 'Assembly Demo',
@@ -35,7 +35,7 @@ const simpleDemoProject = {
   tags: ['demo'],
 }
 
-/** 当前用于展示的列表：有真实项目时展示项目，否则展示一个内置 demo */
+/** Display list: shows real projects when available, otherwise falls back to the built-in demo. */
 const displayProjects = computed(() => {
   if (projects.value && projects.value.length > 0) {
     return projects.value
@@ -78,7 +78,7 @@ function getProjectLink(project) {
   }
   const name = project.name || project.title || project.id
   if (name) {
-    // 无项目 UUID 的情况统一跳转到前端内嵌 demo 视图
+    // No project UUID: redirect to the embedded frontend demo view
     return { path: '/demo/embed', query: { project: name } }
   }
   return { path: '/demo/embed' }
@@ -107,7 +107,7 @@ async function loadProjects() {
       throw new Error('Invalid project list')
     }
 
-    // 允许空列表：此时前端显示“暂无项目”，不再展示本地 demo
+    // Allow empty list: the UI will show “no projects” and the local demo is no longer shown
     projects.value = list
   } catch (err) {
     console.error('[ProjectList] Failed to load project list:', err)

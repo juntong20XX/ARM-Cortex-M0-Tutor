@@ -42,31 +42,31 @@ export interface TracePlayerOptions {
 
 export interface TraceControllerOptions {
   /**
-   * 默认播放速度倍数（仅影响 Wait 事件）
+   * Default playback speed multiplier (only affects Wait events).
    */
   speed?: number
 }
 
 export interface TraceController {
   /**
-   * Trace 总步数
+   * Total number of steps in the trace.
    */
   readonly totalSteps: number
   /**
-   * 当前所在的 step 索引（0-based）
+   * Current step index (0-based). -1 means before the first step.
    */
   readonly currentIndex: number
 
   /**
-   * 跳转到指定 step 索引。
-   * 实现策略：对中间步骤只应用 snapshot（不执行事件），仅对目标步执行事件，避免闪烁。
+   * Seek to the given step index.
+   * Strategy: apply snapshots for intermediate steps (no events), execute events only for the target step to avoid flicker.
    */
   stepTo(index: number, options?: { animateWaits?: boolean; speed?: number }): Promise<void>
 
   /**
-   * 从当前（或指定）索引向前自动播放，直到：
-   * - 到达最后一步，或
-   * - `shouldContinue()` 返回 false。
+   * Auto-play forward from the current (or given) index until:
+   * - the last step is reached, or
+   * - `shouldContinue()` returns false.
    */
   playForward(options: {
     fromIndex?: number
@@ -110,14 +110,14 @@ export async function playTraceStream(
 }
 
 /**
- * 创建一个基于 TraceResponse 的时间轴控制器。
+ * Create a timeline controller backed by a TraceResponse.
  *
- * 设计要点：
- * - seek (stepTo): 对中间步骤只应用 snapshot（不执行事件），仅对目标步执行事件。
- *   消除了历史 SetActiveLine 等事件快速触发导致的命令行闪烁。
- * - 自动播放 (playForward): 增量式逐步执行，不从头重放，避免 O(N²) 重播和闪烁。
- * - Wait / AnimateFragmentMove 在 animateWaits=false 时均跳过延迟（AnimateFragmentMove
- *   以 duration=0 执行，保留 floatingTokenPositions 状态供后续 OverlayArrow 使用）。
+ * Design notes:
+ * - seek (stepTo): applies snapshots for intermediate steps (no events), executes events
+ *   only for the target step — eliminates flicker caused by rapid SetActiveLine replays.
+ * - auto-play (playForward): incremental, never replays from the start — avoids O(N²) cost and flicker.
+ * - When animateWaits=false, Wait events are skipped and AnimateFragmentMove runs at duration=0
+ *   (preserving floatingTokenPositions so subsequent FloatingToken OverlayArrows resolve correctly).
  */
 export function createTraceController(
   trace: TraceResponse,
@@ -145,9 +145,10 @@ export function createTraceController(
   }
 
   /**
-   * 跳转到指定 index：
-   * - 中间步骤只应用 snapshot，不执行事件，避免 SetActiveLine 等在旧行之间闪烁。
-   * - 目标步骤执行事件；animateWaits=false 时跳过 Wait，AnimateFragmentMove 以 duration=0 执行。
+   * Seek to the given index:
+   * - Intermediate steps: apply snapshot only, no events (avoids SetActiveLine flicker between lines).
+   * - Target step: apply snapshot then execute events; when animateWaits=false, Wait is skipped
+   *   and AnimateFragmentMove runs at duration=0.
    */
   async function seekToIndex(
     targetIndex: number,
@@ -165,13 +166,13 @@ export function createTraceController(
     }
     applyInitialState()
 
-    // 中间步骤：只应用 snapshot，不执行事件
+    // Intermediate steps: snapshot only, no events
     for (let i = 0; i < clampedIndex; i++) {
       const step = steps[i]
       if (step) driver.applySnapshot(step.snapshot)
     }
 
-    // 目标步骤：应用 snapshot 并执行事件
+    // Target step: apply snapshot then run events
     const finalStep = steps[clampedIndex]
     if (finalStep) {
       driver.applySnapshot(finalStep.snapshot)
@@ -185,8 +186,8 @@ export function createTraceController(
   }
 
   /**
-   * 增量式向前播放：每次只执行下一步的事件，不从头重放。
-   * 避免 O(N²) 重播以及 resetFragmentState 引起的视觉清零闪烁。
+   * Incremental forward playback: executes only the next step's events without replaying from the start.
+   * Avoids O(N²) replay cost and visual reset flicker from resetFragmentState.
    */
   async function playForwardImpl(options: {
     fromIndex?: number
@@ -278,8 +279,8 @@ async function runEvent(
       }
       break
     case 'AnimateFragmentMove': {
-      // seek 时以 duration=0 执行：跳过动画延迟，但保留 floatingTokenPositions
-      // 状态，确保后续 OverlayArrow(FloatingToken) 能正确解析坐标。
+      // During seek: run at duration=0 to skip animation delay while preserving
+      // floatingTokenPositions so subsequent FloatingToken OverlayArrows resolve correctly.
       const scaledDuration = animateWaits ? Math.round((ev.duration ?? 600) / speed) : 0
       if (driver.animateFragmentMove) {
         await driver.animateFragmentMove(ev.lineIndex, ev.fragments, {

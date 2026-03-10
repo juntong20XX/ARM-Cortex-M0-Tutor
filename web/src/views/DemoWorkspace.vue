@@ -1377,10 +1377,9 @@ async function runTraceAnimation(trace: TraceResponse) {
   totalSteps.value = controller.totalSteps
   currentStepIndex.value = controller.currentIndex
   if (controller.totalSteps > 0) {
-    await controller.stepTo(0, { animateWaits: false })
-    currentStepIndex.value = controller.currentIndex
+    currentStepIndex.value = -1
     currentStepText.value = ''
-    // 点击 Run 后自动开始播放动画
+    // 点击 Run 后自动从第一步开始播放动画（从 -1 开始，playForward 会执行 step 0）
     playFromCurrent()
   } else {
     isAnimating.value = false

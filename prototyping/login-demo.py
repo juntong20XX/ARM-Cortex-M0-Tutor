@@ -23,7 +23,7 @@ app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 app.include_router(main.api_router)
 
 setting = settings.AppSetting(
-    database_url="sqlite:///:memory:",
+    database_url="sqlite:///data.db",
     secret_key="secret_key",
     login_action=settings.LoginAction.direct_oauth)
 
@@ -32,15 +32,18 @@ if __name__ == "__main__":
     db.init_database(setting)
     with db.db_context() as session:
         # db.add_user_group(session, name="admin")
-        db.add_provider(session,
-                        name="authelia",
-                        client_id="ACT",
-                        client_secret="0sI2SoOidEfjlCi3FnO7j8PeDJ16ABLIf7dRqrlNpJg9rn1F4gwMfarxEgSICr2H",
-                        authorize_url="https://fyp-auth.hogwarts.ac/.well-known/openid-configuration",
-                        token_url="https://fyp-act.hogwarts.ac/api/login-oauth/authelia",
-                        user_info_url="https://exmple.com",
-                        group_mapping={"admins": "administrator"},
-                        unmapped_group_strategy=db.GroupMappingStrategy.IGNORE,
-                        scope="openid profile email groups")
+        try:
+            db.add_provider(session,
+                            name="authelia",
+                            client_id="ACT",
+                            client_secret="0sI2SoOidEfjlCi3FnO7j8PeDJ16ABLIf7dRqrlNpJg9rn1F4gwMfarxEgSICr2H",
+                            authorize_url="https://fyp-auth.hogwarts.ac/.well-known/openid-configuration",
+                            token_url="https://fyp-act.hogwarts.ac/api/login-oauth/authelia",
+                            user_info_url="https://exmple.com",
+                            group_mapping={"admins": "administrator"},
+                            unmapped_group_strategy=db.GroupMappingStrategy.IGNORE,
+                            scope="openid profile email groups")
+        except ValueError:
+            pass
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

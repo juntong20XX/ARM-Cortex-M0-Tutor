@@ -184,3 +184,4 @@ CLAUDE.md
 # My Ignore
 example/auth-system/cache
 example/auth-system/config
+*.db

@@ -244,9 +244,10 @@ def _events_for_add_sub(
     op_symbol: str,
 ) -> list[adl_models.ADLEvent]:
     """
-    为 ADD/SUB 指令生成事件：
-    - 标记源寄存器读、目标寄存器写；
-    - 以 ALU 为中心，展示表达式与结果写回。
+    为 ADD/SUB 指令生成事件（与 MOV 同风格）：
+    - 高亮所有操作数（dest + src）→ 箭头展示数据流 → 放大移动到中央 → 浮动 token 箭头指向 dest。
+    - 箭头文字格式: dest (src1 op src2)，全部使用小写原文。
+    - 支持 3 操作数（adds r2, r1, #3）和 2 操作数（adds r1, #4 即 r1 = r1 + #4）形式。
     """
     dest_param = asm_line.param
     src1_param = asm_line.param_1
@@ -256,67 +257,140 @@ def _events_for_add_sub(
     if not src1_param or not src1_param.type_name:
         return []
     dest_reg = _normalize_reg(dest_param.text)
+    dest_short = dest_param.text.strip()
 
-    def _operand_display(p: "ASMParam") -> tuple[str, str | None]:
-        """返回 (展示文本, 对应寄存器当前值或 None)。"""
-        if not p or not p.type_name:
-            return "?", None
-        if p.type_name == "r":
-            reg = _normalize_reg(p.text)
-            value = _reg_value(step.register_values, p.text.strip().lower())
-            if value is not None:
-                return f"{reg} ({value})", value
-            return reg, None
-        # 立即数或其他，直接用原始文本
-        return p.text.strip(), None
+    # 判断 2 操作数还是 3 操作数形式
+    # 3-op: adds rd, rn, rm/imm  → param=rd, param_1=rn, param_2=rm
+    # 2-op: adds rd, rm/imm      → param=rd, param_1=rm, param_2=None (rd 同时是 src1)
+    has_three_ops = src2_param is not None and bool(src2_param.type_name)
+    if has_three_ops:
+        op1_param = src1_param       # 第一个源操作数
+        op2_param = src2_param       # 第二个源操作数
+    else:
+        op1_param = dest_param       # 隐含的第一个源操作数 = dest
+        op2_param = src1_param       # 第二个源操作数
 
-    src1_text, _ = _operand_display(src1_param)
-    src2_text, _ = _operand_display(src2_param) if src2_param and src2_param.type_name else ("?", None)
+    op1_short = op1_param.text.strip()
+    op2_short = op2_param.text.strip()
+    # 表达式文本，带括号: (r1 + #3)
+    expr_text = f"({op1_short} {op_symbol} {op2_short})"
+    # 箭头文字: r2 (r1 + #3)
+    arrow_text = f"{dest_short} {expr_text}"
 
-    expr = f"{src1_text} {op_symbol} {src2_text}"
-    result_value = _reg_value(step.register_values, dest_param.text.strip().lower())
-    annotate_text = expr
-    if result_value is not None:
-        annotate_text = f"{expr} = {result_value}"
+    # ── 构建 fragment spans ──
+    # 两个 fragment：dest 和 expr（源操作数合并为一个带括号的表达式）
+    line_text = asm_line.to_code(0)
 
+    # 定位 dest
+    dest_text = dest_param.text.strip()
+    dest_idx = line_text.find(dest_text)
+    if dest_idx < 0:
+        dest_idx = 0
+
+    # 定位源操作数区间（从 dest 之后搜索）
+    search_from = dest_idx + len(dest_text)
+    src1_text = op1_param.text.strip()
+    src2_text = op2_param.text.strip()
+    if has_three_ops:
+        src1_idx = line_text.find(src1_text, search_from)
+        src2_idx = line_text.find(src2_text, src1_idx + len(src1_text) if src1_idx >= 0 else search_from)
+    else:
+        src1_idx = -1  # 2-op: src1 隐含 = dest，代码中无独立位置
+        src2_idx = line_text.find(src2_text, search_from)
+
+    # expr fragment 的代码高亮范围：从第一个源操作数到最后一个源操作数
+    if has_three_ops and src1_idx >= 0 and src2_idx >= 0:
+        expr_start = src1_idx
+        expr_end = src2_idx + len(src2_text)
+    elif src2_idx >= 0:
+        expr_start = src2_idx
+        expr_end = src2_idx + len(src2_text)
+    else:
+        expr_start = -1
+        expr_end = -1
+
+    all_fragments: list[adl_models.FragmentSpan] = []
+    if dest_idx >= 0:
+        all_fragments.append(
+            adl_models.FragmentSpan(
+                text=dest_text, start=dest_idx, end=dest_idx + len(dest_text), id="dest",
+            )
+        )
+    if expr_start >= 0:
+        all_fragments.append(
+            adl_models.FragmentSpan(
+                text=expr_text, start=expr_start, end=expr_end, id="expr",
+            )
+        )
+
+    # ── 生成事件序列 ──
     events: list[adl_models.ADLEvent] = [
         adl_models.ADLEventFocusCanvas(target="ALU"),
     ]
 
-    if src1_param.type_name == "r":
+    # 标记寄存器读写
+    if op1_param.type_name == "r":
         events.append(
             adl_models.ADLEventMarkRegister(
-                reg=_normalize_reg(src1_param.text),
-                mode="read",
+                reg=_normalize_reg(op1_param.text), mode="read",
             )
         )
-    if src2_param and src2_param.type_name == "r":
+    if op2_param.type_name == "r":
         events.append(
             adl_models.ADLEventMarkRegister(
-                reg=_normalize_reg(src2_param.text),
-                mode="read",
+                reg=_normalize_reg(op2_param.text), mode="read",
+            )
+        )
+    events.append(
+        adl_models.ADLEventMarkRegister(reg=dest_reg, mode="write")
+    )
+
+    # 高亮操作数片段
+    if all_fragments:
+        events.append(
+            adl_models.ADLEventHighlightCodeFragment(
+                lineIndex=step.line_counter,
+                fragments=all_fragments,
+            )
+        )
+        events.append(adl_models.ADLEventWait(ms=50))
+
+        # 第一支箭头：从 expr CodeFragment → 目标寄存器行
+        events.append(
+            adl_models.ADLEventOverlayArrow(
+                from_=adl_models.AnchorRefCodeFragment(
+                    lineIndex=step.line_counter, fragment="expr",
+                ),
+                to=adl_models.AnchorRefRegisterRow(reg=dest_reg),
+                text=arrow_text,
             )
         )
 
-    events.append(
-        adl_models.ADLEventMarkRegister(
-            reg=dest_reg,
-            mode="write",
+        # 放大并移动到代码框中央，然后显示浮动 token expr → dest 的箭头
+        events.extend([
+            adl_models.ADLEventWait(ms=300),
+            adl_models.ADLEventAnimateFragmentMove(
+                lineIndex=step.line_counter,
+                fragments=all_fragments,
+                duration=600,
+                target="codeBoxCenter",
+            ),
+            adl_models.ADLEventOverlayArrow(
+                from_=adl_models.AnchorRefFloatingToken(tokenId="expr"),
+                to=adl_models.AnchorRefFloatingToken(tokenId="dest"),
+                text=arrow_text,
+            ),
+        ])
+    else:
+        # 降级
+        events.append(
+            adl_models.ADLEventOverlayArrow(
+                from_=adl_models.AnchorRefCanvasComponent(id="ALU"),
+                to=adl_models.AnchorRefRegisterRow(reg=dest_reg),
+                text=arrow_text,
+            )
         )
-    )
-    events.append(
-        adl_models.ADLEventAnnotateBus(
-            text=annotate_text,
-            at="writeback",
-        )
-    )
-    events.append(
-        adl_models.ADLEventOverlayArrow(
-            from_=adl_models.AnchorRefCanvasComponent(id="ALU"),
-            to=adl_models.AnchorRefRegisterRow(reg=dest_reg),
-            text=f"{expr} → {dest_reg}",
-        )
-    )
+
     return events
 
 

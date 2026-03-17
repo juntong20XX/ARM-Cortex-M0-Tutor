@@ -173,41 +173,13 @@ The Vite dev server does **not** proxy to the backend. Run the backend separatel
 
 ## Docker
 
-A `Dockerfile` is provided based on Debian with all system dependencies (QEMU, ARM GCC, GDB, CMake, Jupyter) pre-installed. The container runs Jupyter Notebook for development and experimentation.
-
-```bash
-# Build (AUTHORIZED_KEYS_PATH is required for SSH; use a dummy file if not needed)
-docker build \
-  --build-arg AUTHORIZED_KEYS_PATH=~/.ssh/authorized_keys \
-  -t arm-m0-tutor .
-
-# Run (development mode: Jupyter + optional SSH)
-docker run -p 8888:8888 -p 22:22 \
-  -e develop=true \
-  arm-m0-tutor
-
-# Run (Jupyter only)
-docker run -p 8888:8888 arm-m0-tutor
-```
-
-Jupyter is available at `http://localhost:8888`. For a full web-app deployment (FastAPI + Vue SPA), see `example/reverse-proxy/` (Traefik) and `example/auth-system/` (Authelia).
+The offical docker was removed.
 
 ---
 
 ## Tests
 
-```bash
-# From repo root, with venv active:
-python -m pytest test/
-
-# Single test file:
-python -m pytest test/test_step_to_adl.py
-
-# Single test:
-python -m pytest test/test_step_to_adl.py::TestAsmStepToAdl::test_movs
-```
-
-Tests use an in-memory SQLite database initialized per test class.
+The unit-test files can be found in `test/`.
 
 ---
 

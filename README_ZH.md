@@ -148,13 +148,6 @@ config = Config(
 
 后端没有内置启动脚本，需使用配置了 Session 中间件和数据库的启动器。可参考 `prototyping/login-demo.py`：
 
-```bash
-cd /path/to/ARM-Cortex-M0-Tutor
-source app/.venv/bin/activate
-pip install -r app/requirements.txt
-python -m uvicorn prototyping.login-demo:app --host 0.0.0.0 --port 8000
-```
-
 生产环境请在工作目录创建 `config.toml`（或通过环境变量设置 `database_url`）。API 地址：`http://localhost:8000`；交互式文档（Swagger UI）：`http://localhost:8000/docs`。
 
 ### 前端
@@ -167,47 +160,19 @@ npm run build      # 生产构建 → dist/
 npm run preview    # 预览生产构建
 ```
 
-Vite 开发服务器**不会**代理到后端，需单独启动后端，必要时配置 CORS。
+Vite 开发服务器**不会**代理到后端，需单独启动后端，必要时配置 CORS (参考 example 中的反向代理和正向代理示例)。
 
 ---
 
 ## Docker 部署
 
-项目提供基于 Debian 的 `Dockerfile`，已预装所有系统依赖（QEMU、ARM GCC、GDB、CMake、Jupyter）。容器内运行 Jupyter Notebook，便于开发与实验。
-
-```bash
-# 构建镜像（AUTHORIZED_KEYS_PATH 为 SSH 所需，若不需要可用占位文件）
-docker build \
-  --build-arg AUTHORIZED_KEYS_PATH=~/.ssh/authorized_keys \
-  -t arm-m0-tutor .
-
-# 开发模式运行（Jupyter + 可选 SSH）
-docker run -p 8888:8888 -p 22:22 \
-  -e develop=true \
-  arm-m0-tutor
-
-# 仅运行 Jupyter
-docker run -p 8888:8888 arm-m0-tutor
-```
-
-Jupyter 访问地址：`http://localhost:8888`。完整 Web 应用部署（FastAPI + Vue SPA）请参考 `example/reverse-proxy/`（Traefik）和 `example/auth-system/`（Authelia）。
+（已过期）
 
 ---
 
 ## 测试
 
-```bash
-# 在仓库根目录，激活 venv 后执行：
-python -m pytest test/
-
-# 运行单个测试文件：
-python -m pytest test/test_step_to_adl.py
-
-# 运行单个测试：
-python -m pytest test/test_step_to_adl.py::TestAsmStepToAdl::test_movs
-```
-
-测试使用每个测试类初始化时的内存 SQLite 数据库。
+测试代码在 `test/` 路径下。 使用 unitest 构建。
 
 ---
 
